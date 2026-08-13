@@ -12,6 +12,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="דוח נוכחות כבאים">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -108,6 +111,10 @@
   </header>
 
   <main class="app-main">
+    <div id="stats-breakdown" class="stats-card hidden">
+      <div class="stats-card-title">פירוט החודש לפי סוג יום</div>
+      <div id="stats-breakdown-rows"></div>
+    </div>
     <div id="shifts-list" class="shifts-list"></div>
     <div id="shifts-empty" class="empty-state hidden">אין דיווחים לחודש הזה עדיין</div>
   </main>
