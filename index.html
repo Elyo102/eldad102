@@ -36,6 +36,7 @@
     <div class="auth-links">
       <button type="button" class="link-btn" id="go-register">נרשמים לראשונה? הרשמה</button>
       <button type="button" class="link-btn" id="go-forgot">שכחתי קוד אישי</button>
+      <button type="button" class="link-btn" id="help-btn-login">מדריך שימוש קצר</button>
     </div>
   </div>
 </section>
@@ -88,7 +89,10 @@
       <div class="user-info">
         <span id="user-name">-</span>
       </div>
-      <button id="logout-btn" class="icon-btn" title="יציאה">יציאה</button>
+      <div class="header-actions">
+        <button id="help-btn-app" class="icon-btn" title="עזרה">?</button>
+        <button id="logout-btn" class="icon-btn" title="יציאה">יציאה</button>
+      </div>
     </div>
 
     <div class="month-nav">
@@ -174,6 +178,46 @@
     <div id="issues-body" class="issues-body"></div>
     <div class="modal-actions">
       <button id="fix-issues-btn" class="btn btn-primary hidden">תקן אוטומטית</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== מודאל: מדריך שימוש ===================== -->
+<div id="help-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>מדריך שימוש קצר</h2>
+      <button class="icon-btn" id="close-help-modal">✕</button>
+    </div>
+    <div class="help-body">
+      <div class="help-item">
+        <h3>הרשמה</h3>
+        <p>בפעם הראשונה לוחצים "הרשמה", מזינים שם פרטי, שם משפחה ומייל בדיוק כפי שרשומים ברשימת התחנה, ומקבלים קוד אישי בן 4 ספרות.</p>
+      </div>
+      <div class="help-item">
+        <h3>כניסה</h3>
+        <p>מזינים את הקוד האישי בן 4 הספרות במסך הכניסה. האפליקציה זוכרת אתכם גם בפתיחה הבאה.</p>
+      </div>
+      <div class="help-item">
+        <h3>שכחתי קוד אישי</h3>
+        <p>לוחצים "שכחתי קוד אישי", מזינים שם פרטי ושם משפחה, והקוד יישלח למייל שרשום במערכת.</p>
+      </div>
+      <div class="help-item">
+        <h3>הוספת דיווח</h3>
+        <p>לוחצים על כפתור ה-"+" בפינה, בוחרים תאריך וסוג יום (רגיל / חופש / מחלה / מילואים / יטבתה וכו׳), ולפי הצורך שעת כניסה ויציאה, מקום עבודה והערות, ושומרים.</p>
+      </div>
+      <div class="help-item">
+        <h3>עריכה ומחיקה</h3>
+        <p>לוחצים על דיווח קיים ברשימה כדי לערוך אותו. אפשר למחוק אותו מתוך אותה חלונית. סימון 🔒 ליד דיווח אומר שהוא מוגן ולא יימחק/יתוקן אוטומטית ע"י המערכת.</p>
+      </div>
+      <div class="help-item">
+        <h3>הכלים בתחתית המסך</h3>
+        <p><b>בדוק בעיות</b> — סורק את הדיווחים שלכם ומאתר אי-התאמות. <b>חשב מחדש</b> — מחשב מחדש את סך השעות של החודש המוצג. <b>נקה חודש</b> — מוחק את כל הדיווחים הלא-מוגנים של החודש המוצג (לא ניתן לביטול).</p>
+      </div>
+      <div class="help-item">
+        <h3>אין אינטרנט?</h3>
+        <p>האפליקציה עדיין נפתחת עם הנתונים האחרונים שנשמרו, אבל לא ניתן לשמור שינויים עד שהחיבור יחזור.</p>
+      </div>
     </div>
   </div>
 </div>
