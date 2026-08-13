@@ -147,6 +147,8 @@ textarea.text-input { resize: vertical; }
 
 .user-info { font-size: 16px; font-weight: 600; }
 
+.header-actions { display: flex; gap: 6px; }
+
 .icon-btn {
   color: #fff;
   font-size: 14px;
@@ -316,6 +318,12 @@ textarea.text-input { resize: vertical; }
 .issues-body { font-size: 14px; line-height: 1.8; min-height: 40px; }
 .issues-body ul { padding-inline-start: 20px; margin: 0; }
 .issues-body .ok-msg { color: var(--success); font-weight: 600; }
+
+.help-body { max-height: 65vh; overflow-y: auto; }
+.help-item { margin-bottom: 16px; }
+.help-item:last-child { margin-bottom: 0; }
+.help-item h3 { font-size: 14px; margin: 0 0 4px; color: var(--brand-dark); }
+.help-item p { font-size: 13.5px; color: var(--text); line-height: 1.7; margin: 0; }
 
 /* ---------- כלליים ---------- */
 .offline-banner {
