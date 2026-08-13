@@ -14,6 +14,18 @@ const MONTH_NAMES = ['ינואר','פברואר','מרץ','אפריל','מאי',
 // סוגי יום שיש להם שעות קבועות (לא צריך שעת כניסה/יציאה)
 const FIXED_HOUR_TYPES = new Set(['חופש', 'מחלה', 'מילואים', 'יטבתה']);
 
+// צבע לכל סוג יום, לתצוגת הפירוט החודשי (כרטיס הסטטיסטיקה)
+const DAY_TYPE_COLORS = {
+  'רגיל': 'var(--c-regular)',
+  'חופש': 'var(--c-vacation)',
+  'מחלה': 'var(--c-sick)',
+  'מילואים': 'var(--c-reserve)',
+  'יטבתה': 'var(--c-yotvata)',
+  'החלפה צרכי מערכת': 'var(--c-swap)',
+  'המשך משמרת': 'var(--c-continued)'
+};
+const DAY_TYPE_ORDER = ['רגיל', 'חופש', 'מחלה', 'מילואים', 'יטבתה', 'החלפה צרכי מערכת', 'המשך משמרת'];
+
 // ---------------------------------------------------------------------
 // state
 // ---------------------------------------------------------------------
@@ -166,6 +178,15 @@ document.querySelectorAll('[data-back-to]').forEach(btn => {
   btn.addEventListener('click', () => showScreen(btn.dataset.backTo));
 });
 
+// ---------------------------------------------------------------------
+// מדריך שימוש (עזרה)
+// ---------------------------------------------------------------------
+function openHelpModal() { $('help-modal').classList.remove('hidden'); }
+function closeHelpModal() { $('help-modal').classList.add('hidden'); }
+$('help-btn-login').addEventListener('click', openHelpModal);
+$('help-btn-app').addEventListener('click', openHelpModal);
+$('close-help-modal').addEventListener('click', closeHelpModal);
+
 $('register-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const firstName = $('reg-first').value.trim();
@@ -228,6 +249,7 @@ async function refreshMonth() {
     state.shifts = Array.isArray(shifts) ? shifts : (shifts.shifts || []);
     state.shifts.sort((a, b) => (a.dateStr || '').localeCompare(b.dateStr || ''));
     renderShifts();
+    renderStatsBreakdown();
     $('month-total').textContent = (totalRes.totalHours ?? 0);
   } catch (err) {
     showToast(err.message || 'שגיאה בטעינת החודש');
@@ -239,9 +261,10 @@ function renderShifts() {
   list.innerHTML = '';
   $('shifts-empty').classList.toggle('hidden', state.shifts.length > 0);
 
-  state.shifts.forEach(shift => {
+  state.shifts.forEach((shift, index) => {
     const card = document.createElement('div');
     card.className = 'shift-card';
+    card.style.animationDelay = Math.min(index * 0.04, 0.5) + 's';
 
     const d = shift.dateStr ? new Date(shift.dateStr) : null;
     const dayNum = shift.dateStr ? shift.dateStr.split('-')[2] : '-';
@@ -263,6 +286,47 @@ function renderShifts() {
     card.addEventListener('click', () => openShiftModal(shift.dateStr, shift));
     list.appendChild(card);
   });
+}
+
+// ---------------------------------------------------------------------
+// כרטיס פירוט לפי סוג יום (סטטיסטיקה חודשית)
+// ---------------------------------------------------------------------
+function renderStatsBreakdown() {
+  const card = $('stats-breakdown');
+  const rowsEl = $('stats-breakdown-rows');
+
+  if (!state.shifts.length) {
+    card.classList.add('hidden');
+    rowsEl.innerHTML = '';
+    return;
+  }
+
+  const totals = {};
+  state.shifts.forEach(shift => {
+    const type = shift.dayType || 'רגיל';
+    const hours = Number(shift.hours) || 0;
+    totals[type] = (totals[type] || 0) + hours;
+  });
+
+  const types = Object.keys(totals).sort((a, b) => {
+    const ai = DAY_TYPE_ORDER.indexOf(a);
+    const bi = DAY_TYPE_ORDER.indexOf(b);
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+  });
+
+  rowsEl.innerHTML = types.map(type => `
+    <div class="stats-row">
+      <span class="stats-dot" style="background:${DAY_TYPE_COLORS[type] || '#999'}"></span>
+      <span class="stats-name">${escapeHtml(type)}</span>
+      <span class="stats-val">${formatHours(totals[type])} שעות</span>
+    </div>
+  `).join('');
+
+  card.classList.remove('hidden');
+}
+
+function formatHours(n) {
+  return Number.isInteger(n) ? n : Math.round(n * 100) / 100;
 }
 
 function escapeHtml(str) {
