@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>דוח נוכחות כבאים</title>
+<meta name="description" content="מערכת דיווח שעות לכבאים - תחנה 102">
+<meta name="theme-color" content="#1860ad">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="דוח נוכחות כבאים">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="offline-banner" class="offline-banner hidden">אין חיבור לאינטרנט - חלק מהפעולות לא יעבדו</div>
+
+<!-- ===================== מסך כניסה ===================== -->
+<section id="screen-login" class="screen">
+  <div class="auth-card">
+    <div class="logo">🚒</div>
+    <h1>דוח נוכחות כבאים</h1>
+    <p class="subtitle">הזן/י את הקוד האישי בן 4 הספרות</p>
+
+    <form id="login-form" autocomplete="off">
+      <input type="text" id="login-code" inputmode="numeric" pattern="[0-9]*" maxlength="8"
+             placeholder="קוד אישי" class="big-input" required>
+      <button type="submit" class="btn btn-primary">כניסה</button>
+    </form>
+
+    <div id="login-error" class="error-msg hidden"></div>
+
+    <div class="auth-links">
+      <button type="button" class="link-btn" id="go-register">נרשמים לראשונה? הרשמה</button>
+      <button type="button" class="link-btn" id="go-forgot">שכחתי קוד אישי</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== מסך הרשמה ===================== -->
+<section id="screen-register" class="screen hidden">
+  <div class="auth-card">
+    <h1>הרשמה</h1>
+    <p class="subtitle">הזן/י שם פרטי, שם משפחה ומייל כפי שמופיעים ברשימת התחנה</p>
+
+    <form id="register-form" autocomplete="off">
+      <input type="text" id="reg-first" placeholder="שם פרטי" class="text-input" required>
+      <input type="text" id="reg-last" placeholder="שם משפחה" class="text-input" required>
+      <input type="email" id="reg-email" placeholder="אימייל" class="text-input" required>
+      <button type="submit" class="btn btn-primary">הרשמה</button>
+    </form>
+
+    <div id="register-result" class="result-msg hidden"></div>
+
+    <div class="auth-links">
+      <button type="button" class="link-btn" data-back-to="screen-login">חזרה לכניסה</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== מסך שכחתי קוד ===================== -->
+<section id="screen-forgot" class="screen hidden">
+  <div class="auth-card">
+    <h1>שחזור קוד אישי</h1>
+    <p class="subtitle">הקוד יישלח למייל שרשום במערכת</p>
+
+    <form id="forgot-form" autocomplete="off">
+      <input type="text" id="forgot-first" placeholder="שם פרטי" class="text-input" required>
+      <input type="text" id="forgot-last" placeholder="שם משפחה" class="text-input" required>
+      <button type="submit" class="btn btn-primary">שלח קוד למייל</button>
+    </form>
+
+    <div id="forgot-result" class="result-msg hidden"></div>
+
+    <div class="auth-links">
+      <button type="button" class="link-btn" data-back-to="screen-login">חזרה לכניסה</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== מסך אפליקציה ראשי ===================== -->
+<section id="screen-app" class="screen hidden">
+  <header class="app-header">
+    <div class="header-top">
+      <div class="user-info">
+        <span id="user-name">-</span>
+      </div>
+      <button id="logout-btn" class="icon-btn" title="יציאה">יציאה</button>
+    </div>
+
+    <div class="month-nav">
+      <button id="prev-month" class="icon-btn">›</button>
+      <div class="month-label" id="month-label">-</div>
+      <button id="next-month" class="icon-btn">‹</button>
+    </div>
+
+    <div class="total-card">
+      <div class="total-label">סה"כ שעות בחודש</div>
+      <div class="total-value" id="month-total">0</div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div id="shifts-list" class="shifts-list"></div>
+    <div id="shifts-empty" class="empty-state hidden">אין דיווחים לחודש הזה עדיין</div>
+  </main>
+
+  <button id="add-shift-btn" class="fab" title="הוספת דיווח">+</button>
+
+  <nav class="bottom-tools">
+    <button id="check-issues-btn" class="tool-btn">בדוק בעיות</button>
+    <button id="recalc-btn" class="tool-btn">חשב מחדש</button>
+    <button id="clear-month-btn" class="tool-btn tool-btn-danger">נקה חודש</button>
+  </nav>
+</section>
+
+<!-- ===================== מודאל: הוספה/עריכה של משמרת ===================== -->
+<div id="shift-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="shift-modal-title">דיווח יום</h2>
+      <button class="icon-btn" id="close-shift-modal">✕</button>
+    </div>
+
+    <form id="shift-form">
+      <label class="field-label">תאריך</label>
+      <input type="date" id="shift-date" class="text-input" required>
+
+      <label class="field-label">סוג יום</label>
+      <select id="shift-daytype" class="text-input">
+        <option value="רגיל">רגיל</option>
+        <option value="חופש">חופש (24 שעות)</option>
+        <option value="מחלה">מחלה (24 שעות)</option>
+        <option value="מילואים">מילואים (8.5 שעות)</option>
+        <option value="יטבתה">יטבתה (25 שעות)</option>
+        <option value="החלפה צרכי מערכת">החלפה צרכי מערכת</option>
+        <option value="המשך משמרת">המשך משמרת (24+ שעות)</option>
+      </select>
+
+      <div id="time-fields">
+        <label class="field-label">שעת כניסה</label>
+        <input type="time" id="shift-start" class="text-input">
+
+        <label class="field-label">שעת יציאה</label>
+        <input type="time" id="shift-end" class="text-input">
+      </div>
+
+      <label class="field-label">מקום עבודה</label>
+      <input type="text" id="shift-workplace" class="text-input" placeholder="לדוגמה: תחנה 102">
+
+      <label class="field-label">הערות</label>
+      <textarea id="shift-notes" class="text-input" rows="2"></textarea>
+
+      <div id="shift-form-error" class="error-msg hidden"></div>
+
+      <div class="modal-actions">
+        <button type="button" id="delete-shift-btn" class="btn btn-danger hidden">מחיקה</button>
+        <button type="submit" class="btn btn-primary">שמירה</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== מודאל: בעיות בנתונים ===================== -->
+<div id="issues-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>בדיקת נתונים</h2>
+      <button class="icon-btn" id="close-issues-modal">✕</button>
+    </div>
+    <div id="issues-body" class="issues-body"></div>
+    <div class="modal-actions">
+      <button id="fix-issues-btn" class="btn btn-primary hidden">תקן אוטומטית</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<div id="loading-overlay" class="loading-overlay hidden"><div class="spinner"></div></div>
+
+<script src="app.js"></script>
+</body>
+</html>

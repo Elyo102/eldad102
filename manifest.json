@@ -1,0 +1,20 @@
+{
+  "name": "דוח נוכחות כבאים",
+  "short_name": "דוח נוכחות",
+  "description": "מערכת דיווח שעות לכבאים - תחנה 102",
+  "id": "/",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f3f1",
+  "theme_color": "#1860ad",
+  "dir": "rtl",
+  "lang": "he",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-192-maskable.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
