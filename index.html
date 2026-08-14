@@ -45,6 +45,58 @@
       <button type="button" class="link-btn" id="go-forgot">שכחתי קוד אישי</button>
       <button type="button" class="link-btn" id="help-btn-login">מדריך שימוש קצר</button>
     </div>
+
+    <button type="button" class="link-btn link-btn-subtle" id="go-admin-login">כניסת מנהל</button>
+  </div>
+</section>
+
+<!-- ===================== מסך כניסת מנהל ===================== -->
+<section id="screen-admin-login" class="screen hidden">
+  <div class="auth-card">
+    <div class="logo">🔐</div>
+    <h1>כניסת מנהל</h1>
+
+    <form id="admin-login-form" autocomplete="on">
+      <input type="password" id="admin-password" placeholder="סיסמת מנהל" class="text-input"
+             autocomplete="current-password" required>
+      <button type="submit" class="btn btn-primary">כניסה</button>
+    </form>
+
+    <div id="admin-login-error" class="error-msg hidden"></div>
+
+    <div class="auth-links">
+      <button type="button" class="link-btn" data-back-to="screen-login">חזרה לכניסה רגילה</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== מסך ניהול ===================== -->
+<section id="screen-admin-dashboard" class="screen hidden">
+  <header class="app-header">
+    <h1>מסך ניהול</h1>
+    <div class="header-actions">
+      <button class="icon-btn" id="admin-refresh-btn" title="רענון">🔄</button>
+      <button class="icon-btn" id="admin-logout-btn" title="יציאה">🚪</button>
+    </div>
+  </header>
+
+  <div class="admin-summary" id="admin-summary"></div>
+
+  <div class="admin-table-wrap">
+    <table class="admin-table" id="admin-table">
+      <thead>
+        <tr>
+          <th>שם</th>
+          <th>קוד</th>
+          <th>שעות החודש</th>
+          <th>התחברות אחרונה</th>
+          <th>ממצאים</th>
+          <th>סטטוס</th>
+          <th>פעולות</th>
+        </tr>
+      </thead>
+      <tbody id="admin-table-body"></tbody>
+    </table>
   </div>
 </section>
 
