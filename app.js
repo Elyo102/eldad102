@@ -9,6 +9,24 @@ const CONFIG = {
   API_URL: 'https://script.google.com/macros/s/AKfycbykXHT-HBpsiBw_pvFBxc3IYdH90bpkQavQIliC980YLDBSRK47pirTxSOGaFXgFM0i/exec'
 };
 
+// ⚙️ הגדרות Firebase להתראות פוש - מגיעות מ-Firebase Console > הגדרות
+// הפרויקט > כללי > "האפליקציות שלך" > אפליקציית ווב (או יוצרים אחת אם
+// אין). זה לא מידע סודי - זה מזהה ציבורי, בטוח לגמרי שיהיה גלוי בקוד
+// הצד-לקוח (ככה Firebase בנוי לעבוד). ⚙️ VAPID_KEY מגיע מאותו מסך
+// הגדרות > Cloud Messaging > "אישורי דחיפה באינטרנט" (Web Push
+// certificates) > "צור זוג מפתחות". ההוראות המדויקות נשלחות בנפרד בצ'אט.
+const FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyAAknVzs43Ruk9tuEV-dziswUNK16xFdWY',
+  authDomain: 'fire102report.firebaseapp.com',
+  projectId: 'fire102report',
+  storageBucket: 'fire102report.firebasestorage.app',
+  messagingSenderId: '306754079111',
+  appId: '1:306754079111:web:7aae9e1823df2da640ab22'
+};
+// ⚠️ עדיין חסר - שלב הבא ב-Firebase Console: הגדרות פרויקט > Cloud
+// Messaging > "Web Push certificates" > "Generate key pair"
+const VAPID_KEY = 'CHANGE_ME_VAPID_PUBLIC_KEY';
+
 const DAY_NAMES = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 const MONTH_NAMES = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 
@@ -158,6 +176,8 @@ function enterApp(code, name) {
   state.currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   showScreen('screen-app');
   refreshMonth();
+  refreshPushButtonUI();
+  silentlyRefreshPushTokenIfEnabled();
 }
 
 $('login-form').addEventListener('submit', async (e) => {
@@ -373,6 +393,7 @@ function renderAdminDashboard() {
           <button type="button" class="admin-action-btn" data-action="toggle" data-code="${escapeHtml(u.code || '')}" data-active="${isActive ? '0' : '1'}">${isActive ? 'השבת' : 'הפעל'}</button>
           <button type="button" class="admin-action-btn" data-action="resend" data-code="${escapeHtml(u.code || '')}">שלח קוד</button>
           <button type="button" class="admin-action-btn" data-action="reset" data-code="${escapeHtml(u.code || '')}">שנה קוד</button>
+          <button type="button" class="admin-action-btn" data-action="push" data-code="${escapeHtml(u.code || '')}">שלח הודעה</button>
         </td>
       </tr>
     `;
@@ -384,6 +405,12 @@ $('admin-table-body').addEventListener('click', async (e) => {
   if (!btn) return;
   const action = btn.dataset.action;
   const code = btn.dataset.code;
+
+  if (action === 'push') {
+    const user = adminState.users.find(u => String(u.code) === String(code));
+    openPushComposeModal({ code, name: (user && user.name) || code });
+    return;
+  }
 
   try {
     if (action === 'toggle') {
@@ -416,6 +443,46 @@ $('admin-logout-btn').addEventListener('click', () => {
   adminPassword = null;
   adminState.users = [];
   showScreen('screen-login');
+});
+
+// ---------------------------------------------------------------------
+// שליחת התראות פוש מהמנהל (שידור לכולם, או הודעה אישית ממסך המשתמש
+// בטבלה) - אותו מודאל משמש לשני המצבים, נבדל לפי pushComposeTarget.
+// ---------------------------------------------------------------------
+let pushComposeTarget = null; // null = שידור לכולם, {code, name} = הודעה אישית
+
+function openPushComposeModal(target) {
+  pushComposeTarget = target || null;
+  $('push-compose-title').textContent = target ? ('הודעה אישית ל-' + target.name) : 'שידור לכולם';
+  $('push-title').value = '';
+  $('push-body').value = '';
+  $('push-compose-error').classList.add('hidden');
+  $('push-compose-modal').classList.remove('hidden');
+}
+$('close-push-compose-modal').addEventListener('click', () => $('push-compose-modal').classList.add('hidden'));
+$('admin-broadcast-btn').addEventListener('click', () => openPushComposeModal(null));
+
+$('push-compose-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const title = $('push-title').value.trim();
+  const body = $('push-body').value.trim();
+  const errBox = $('push-compose-error');
+  errBox.classList.add('hidden');
+  if (!title || !body) {
+    errBox.textContent = 'יש למלא כותרת ותוכן';
+    errBox.classList.remove('hidden');
+    return;
+  }
+  try {
+    const result = pushComposeTarget
+      ? await callApi('POST', 'adminSendPushToUser', { password: adminPassword, code: pushComposeTarget.code, title, body })
+      : await callApi('POST', 'adminBroadcastPush', { password: adminPassword, title, body });
+    showToast(result.message || 'ההודעה נשלחה');
+    $('push-compose-modal').classList.add('hidden');
+  } catch (err) {
+    errBox.textContent = err.message || 'שגיאה בשליחה';
+    errBox.classList.remove('hidden');
+  }
 });
 
 // ---------------------------------------------------------------------
@@ -767,10 +834,136 @@ updateOnlineStatus();
 // ---------------------------------------------------------------------
 // Service Worker
 // ---------------------------------------------------------------------
+let swRegistration = null;
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('service-worker.js').catch(() => {});
+    navigator.serviceWorker.register('service-worker.js')
+      .then((reg) => { swRegistration = reg; })
+      .catch(() => {});
   });
+}
+
+// ---------------------------------------------------------------------
+// התראות פוש (Firebase Cloud Messaging) - צד המשתמש
+// שומרים דגל "התראות הופעלו" ב-localStorage (לא את הטוקן עצמו - אותו
+// Firebase מנהל בעצמו במכשיר) כדי שהאייקון בכותרת ידע איזה מצב להראות
+// כבר בטעינה הבאה, בלי לשאול את המשתמש שוב מיותר.
+// ---------------------------------------------------------------------
+let firebaseMessaging = null;
+
+function pushEnabledLocally() {
+  return localStorage.getItem('ds102_push_enabled') === '1';
+}
+function setPushEnabledLocally(on) {
+  if (on) localStorage.setItem('ds102_push_enabled', '1');
+  else localStorage.removeItem('ds102_push_enabled');
+}
+
+// מאתחל את Firebase Messaging בפעם הראשונה שצריך אותו בפועל (לא כבר
+// בטעינת הדף) - ומחזיר null בשקט אם ה-SDK לא נטען או שההגדרות
+// (FIREBASE_CONFIG) עדיין לא מולאו, כדי שהאפליקציה תמשיך לעבוד רגיל
+// גם לפני שהתראות מוגדרות.
+function initFirebaseMessaging_() {
+  if (firebaseMessaging) return firebaseMessaging;
+  if (typeof firebase === 'undefined' || !FIREBASE_CONFIG.apiKey || FIREBASE_CONFIG.apiKey === 'CHANGE_ME') return null;
+  firebase.initializeApp(FIREBASE_CONFIG);
+  firebaseMessaging = firebase.messaging();
+  return firebaseMessaging;
+}
+
+function refreshPushButtonUI() {
+  const btn = $('push-toggle-btn');
+  if (!btn || !('Notification' in window)) return;
+  if (Notification.permission === 'denied') {
+    btn.textContent = '🔕';
+    btn.title = 'התראות חסומות בדפדפן - יש לאשר אותן בהגדרות האתר כדי להפעיל';
+    btn.classList.remove('push-active');
+  } else if (pushEnabledLocally() && Notification.permission === 'granted') {
+    btn.textContent = '🔔';
+    btn.title = 'התראות פעילות (לחיצה תכבה)';
+    btn.classList.add('push-active');
+  } else {
+    btn.textContent = '🔔';
+    btn.title = 'הפעלת התראות';
+    btn.classList.remove('push-active');
+  }
+}
+
+async function enablePush() {
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+    showToast('הדפדפן הזה לא תומך בהתראות');
+    return;
+  }
+  const messaging = initFirebaseMessaging_();
+  if (!messaging) {
+    showToast('התראות עדיין לא הוגדרו באפליקציה');
+    return;
+  }
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      showToast(permission === 'denied'
+        ? 'ההתראות נחסמו - אפשר לאשר אותן בהגדרות האתר בדפדפן'
+        : 'לא אושרה הרשאה להתראות');
+      refreshPushButtonUI();
+      return;
+    }
+    if (!swRegistration) swRegistration = await navigator.serviceWorker.ready;
+    const token = await messaging.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: swRegistration });
+    if (!token) throw new Error('לא התקבל טוקן התראות מהדפדפן');
+    await callApi('POST', 'registerPushToken', { code: state.code, token });
+    setPushEnabledLocally(true);
+    showToast('התראות הופעלו בהצלחה');
+  } catch (err) {
+    showToast(err.message || 'שגיאה בהפעלת התראות');
+  }
+  refreshPushButtonUI();
+}
+
+async function disablePush() {
+  try {
+    const messaging = initFirebaseMessaging_();
+    if (messaging) {
+      try { await messaging.deleteToken(); } catch (e) { /* לא קריטי אם נכשל */ }
+    }
+    await callApi('POST', 'unregisterPushToken', { code: state.code });
+    setPushEnabledLocally(false);
+    showToast('התראות כובו');
+  } catch (err) {
+    showToast(err.message || 'שגיאה בכיבוי התראות');
+  }
+  refreshPushButtonUI();
+}
+
+const pushToggleBtn = $('push-toggle-btn');
+if (pushToggleBtn) {
+  pushToggleBtn.addEventListener('click', () => {
+    if (Notification.permission === 'denied') {
+      showToast('ההתראות חסומות בהגדרות האתר של הדפדפן - יש לאשר אותן שם ידנית');
+      return;
+    }
+    if (pushEnabledLocally() && Notification.permission === 'granted') {
+      disablePush();
+    } else {
+      enablePush();
+    }
+  });
+}
+
+// אם ההרשאה כבר אושרה בעבר - מרעננים בשקט את הטוקן ברקע בכל כניסה
+// לאפליקציה, בלי לשאול את המשתמש שוב. תופס גם מקרים שבהם הטוקן
+// התחלף אצל Firebase מאז הפעם הקודמת (Firebase מחליף טוקנים מדי פעם).
+async function silentlyRefreshPushTokenIfEnabled() {
+  if (!('Notification' in window) || !pushEnabledLocally() || Notification.permission !== 'granted') return;
+  try {
+    const messaging = initFirebaseMessaging_();
+    if (!messaging) return;
+    if (!swRegistration) swRegistration = await navigator.serviceWorker.ready;
+    const token = await messaging.getToken({ vapidKey: VAPID_KEY, serviceWorkerRegistration: swRegistration });
+    if (token) await callApi('POST', 'registerPushToken', { code: state.code, token });
+  } catch (e) {
+    // שקט לגמרי - זו רק סנכרון ברקע, לא פעולה שהמשתמש יזם במפורש
+  }
 }
 
 // ---------------------------------------------------------------------
