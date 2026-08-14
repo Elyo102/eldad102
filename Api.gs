@@ -21,7 +21,7 @@
  *  - doPost(e) - כל פעולה שמשנה נתונים (saveManualShift, saveShift,
  *                clearMonth, deleteShift, recalculateUserMonth,
  *                fixMyDataIssues, registerUser, sendForgotCode,
- *                setRecoveryEmail) - מקבל גוף JSON.
+ *                setRecoveryEmail, exportMonthSheet) - מקבל גוף JSON.
  *
  *  הערה חשובה על CORS:
  *  כדי להימנע מ"preflight" (בקשת OPTIONS) שה-Apps Script לא יודע
@@ -138,6 +138,10 @@ function doPost(e) {
 
       case 'fixMyDataIssues':
         result = fixMyDataIssues(body.code);
+        break;
+
+      case 'exportMonthSheet':
+        result = exportMonthSheet(body.code, body.monthKey);
         break;
 
       default:
