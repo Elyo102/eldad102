@@ -3,9 +3,43 @@
  *  שומר במטמון את קבצי המעטפת (HTML/CSS/JS/אייקונים) כדי שהאפליקציה
  *  תיפתח מהר גם ברשת חלשה. קריאות ה-API (script.google.com) תמיד
  *  הולכות ישירות לרשת - לא נשמרות במטמון, כי אלה נתונים חיים.
+ *
+ *  בנוסף: מטפל בהתראות פוש (Firebase Cloud Messaging) שמגיעות כשהאפליקציה
+ *  סגורה/ברקע. לא רושמים Service Worker נפרד לזה בכוונה (firebase-messaging-sw.js
+ *  הנפרד שמופיע בתיעוד של Firebase) - אלא מייבאים את ה-SDK ישירות לתוך
+ *  ה-Service Worker הקיים הזה, כי לדפדפן מותר SW פעיל אחד בלבד לכל מקור
+ *  (origin), וזה כבר תפוס ע"י הקבצים הסטטיים למעלה.
  * ===================================================================== */
 
-const CACHE_NAME = 'ds102-shell-v8';
+importScripts('https://www.gstatic.com/firebasejs/12.6.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/12.6.0/firebase-messaging-compat.js');
+
+// ⚠️ חובה שיהיה זהה בדיוק ל-FIREBASE_CONFIG שבתחילת app.js - זה לא
+// מייבא משם אוטומטית כי Service Worker רץ בהקשר נפרד לגמרי מהדף עצמו.
+firebase.initializeApp({
+  apiKey: 'AIzaSyAAknVzs43Ruk9tuEV-dziswUNK16xFdWY',
+  authDomain: 'fire102report.firebaseapp.com',
+  projectId: 'fire102report',
+  storageBucket: 'fire102report.firebasestorage.app',
+  messagingSenderId: '306754079111',
+  appId: '1:306754079111:web:7aae9e1823df2da640ab22'
+});
+
+// כשההודעה מגיעה עם payload מסוג "notification" (וזה מה ש-Code.gs שולח -
+// ראה sendFcmMessage_), הדפדפן מציג אותה אוטומטית לבד גם בלי הקוד הזה.
+// עדיין קוראים ל-onBackgroundMessage כדי לוודא שההתנהגות עקבית בכל
+// הדפדפנים, ולתת ליומן הקונסולה שורה ברורה לאבחון אם משהו לא מגיע.
+try {
+  const messaging = firebase.messaging();
+  messaging.onBackgroundMessage((payload) => {
+    console.log('[service-worker] התראת פוש התקבלה ברקע:', payload);
+  });
+} catch (e) {
+  // אם FIREBASE_CONFIG עדיין לא מולא (עדיין CHANGE_ME) - לא מפילים את
+  // כל ה-Service Worker בגלל זה, פשוט לא יהיו התראות עד שימולא.
+}
+
+const CACHE_NAME = 'ds102-shell-v9';
 const SHELL_FILES = [
   './',
   './index.html',
