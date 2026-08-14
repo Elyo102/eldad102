@@ -407,6 +407,9 @@ $('export-sheet-btn').addEventListener('click', async () => {
     } else {
       showToast('הקישור נוצר, אך הדפדפן חסם את פתיחת הטאב. אפשר לאשר פתיחת חלונות קופצים ולנסות שוב.');
     }
+    if (result.emailed) {
+      showToast('הדוח נפתח, וגם נשלח למייל שלך');
+    }
   } catch (err) {
     if (newTab) newTab.close();
     showToast(err.message || 'שגיאה בייצוא הגיליון');
