@@ -36,6 +36,10 @@
 
     <div id="login-error" class="error-msg hidden"></div>
 
+    <button type="button" id="install-app-btn" class="btn btn-install hidden">
+      <span class="install-icon">⬇</span> התקן את האפליקציה למסך הבית
+    </button>
+
     <div class="auth-links">
       <button type="button" class="link-btn" id="go-register">נרשמים לראשונה? הרשמה</button>
       <button type="button" class="link-btn" id="go-forgot">שכחתי קוד אישי</button>
@@ -43,6 +47,33 @@
     </div>
   </div>
 </section>
+
+<!-- ===================== מודאל: הוראות התקנה לאייפון ===================== -->
+<div id="ios-install-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>התקנה למסך הבית</h2>
+      <button class="icon-btn" id="close-ios-install-modal">✕</button>
+    </div>
+    <div class="help-body">
+      <div class="help-item">
+        <p>באייפון, ספארי לא מאפשר להתקין אפליקציה בלחיצה אחת - צריך לעשות את זה ידנית, שלושה שלבים קצרים:</p>
+      </div>
+      <div class="help-item">
+        <h3>1. כפתור השיתוף</h3>
+        <p>בתחתית (או למעלה) הדפדפן, מקישים על כפתור השיתוף - ריבוע עם חץ שמצביע למעלה 🔗.</p>
+      </div>
+      <div class="help-item">
+        <h3>2. הוסף למסך הבית</h3>
+        <p>גוללים ברשימה שנפתחת ובוחרים "הוסף למסך הבית" (Add to Home Screen).</p>
+      </div>
+      <div class="help-item">
+        <h3>3. הוספה</h3>
+        <p>מקישים "הוסף" בפינה הימנית העליונה - האייקון יופיע במסך הבית כמו כל אפליקציה רגילה.</p>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- ===================== מסך הרשמה ===================== -->
 <section id="screen-register" class="screen hidden">
