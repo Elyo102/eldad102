@@ -178,6 +178,7 @@ function enterApp(code, name) {
   refreshMonth();
   refreshPushButtonUI();
   silentlyRefreshPushTokenIfEnabled();
+  maybeAutoPromptPush();
 }
 
 $('login-form').addEventListener('submit', async (e) => {
@@ -964,6 +965,25 @@ async function silentlyRefreshPushTokenIfEnabled() {
   } catch (e) {
     // שקט לגמרי - זו רק סנכרון ברקע, לא פעולה שהמשתמש יזם במפורש
   }
+}
+
+// מבקש הרשאת התראות אוטומטית (בלי צורך שהמשתמש ימצא וילחץ על פעמון) בכניסה
+// הראשונה לאפליקציה אחרי ההתקנה/כניסה - כך שרוב המשתמשים יקבלו התראות
+// "מהקופסה" בלי פעולה יזומה. חשוב: זו לא עקיפה של הרשאת הדפדפן - אין שום
+// דרך טכנית (בשום דפדפן) לאפשר התראות בלי שהמשתמש עצמו ילחץ "אפשר" בחלונית
+// הילידית של הדפדפן; מה שקורה כאן הוא רק שהחלונית הזו נפתחת אוטומטית במקום
+// לחכות שהמשתמש ילחץ על כפתור הפעמון. שני "בלמים" מונעים הצקה חוזרת:
+// 1) Notification.permission !== 'default' - כלומר המשתמש כבר ענה פעם
+//    (אישר או חסם) בעבר, בכל אתר/כניסה קודמת - לא שואלים שוב לעולם.
+// 2) דגל ב-localStorage - גם אם המשתמש סגר את חלונית ההרשאה בלי לענות
+//    (permission נשאר 'default'), לא ננסה לבקש שוב אוטומטית בכניסות
+//    הבאות; הוא עדיין יכול להפעיל ידנית דרך כפתור הפעמון בכל שלב.
+async function maybeAutoPromptPush() {
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
+  if (Notification.permission !== 'default') return;
+  if (localStorage.getItem('ds102_push_auto_prompted') === '1') return;
+  localStorage.setItem('ds102_push_auto_prompted', '1');
+  await enablePush();
 }
 
 // ---------------------------------------------------------------------
