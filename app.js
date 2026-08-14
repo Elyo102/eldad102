@@ -25,7 +25,7 @@ const FIREBASE_CONFIG = {
 };
 // ⚠️ עדיין חסר - שלב הבא ב-Firebase Console: הגדרות פרויקט > Cloud
 // Messaging > "Web Push certificates" > "Generate key pair"
-const VAPID_KEY = 'CHANGE_ME_VAPID_PUBLIC_KEY';
+const VAPID_KEY = 'BCMPwpgtlMtk0vzcrRwROJIVGlsyCxIS4iAUmdW8up3B4-fmvvmUqp9cRxh9GUQsIeg92eWbFA9uWteQztNdni4';
 
 const DAY_NAMES = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 const MONTH_NAMES = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
