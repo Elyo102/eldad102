@@ -4,8 +4,9 @@
  * ===================================================================== */
 
 // !!! זו הכתובת שקיבלנו מהמשתמש - כבר מולאה, אין צורך לשנות !!!
+// עודכן ל-Web App של הפרויקט הפרטי החדש (הפרדה מגיליון "סידור עבודה" של ליסה)
 const CONFIG = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbxKEv5ZrZ1JRqLW3txv6kukhn76ynzmLvm06TksE9TNwIlw558027Rd8tH-6Kas6emg/exec'
+  API_URL: 'https://script.google.com/macros/s/AKfycbykXHT-HBpsiBw_pvFBxc3IYdH90bpkQavQIliC980YLDBSRK47pirTxSOGaFXgFM0i/exec'
 };
 
 const DAY_NAMES = ['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
@@ -186,6 +187,53 @@ function closeHelpModal() { $('help-modal').classList.add('hidden'); }
 $('help-btn-login').addEventListener('click', openHelpModal);
 $('help-btn-app').addEventListener('click', openHelpModal);
 $('close-help-modal').addEventListener('click', closeHelpModal);
+
+// ---------------------------------------------------------------------
+// התקנה למסך הבית - כפתור אחד שמפעיל את דיאלוג ההתקנה של הדפדפן
+// (אנדרואיד/כרום), ובאייפון (שלא תומך בהפעלה אוטומטית) מציג הוראות.
+// ---------------------------------------------------------------------
+let deferredInstallPrompt = null;
+const installBtn = $('install-app-btn');
+
+function isRunningStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+function isIOSDevice() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+}
+
+if (!isRunningStandalone()) {
+  if (isIOSDevice()) {
+    // אין ב-iOS אירוע/API שמאפשר להפעיל את "הוסף למסך הבית" אוטומטית -
+    // זו מגבלה של אפל עצמה, לא משהו שאפשר לעקוף מהאתר. מציגים כפתור
+    // שמסביר בדיוק מה ללחוץ, בלי לשלוח למשתמש לחפש בתפריטים לבד.
+    installBtn.classList.remove('hidden');
+    installBtn.addEventListener('click', () => {
+      $('ios-install-modal').classList.remove('hidden');
+    });
+  } else {
+    // אנדרואיד/כרום/אדג' - הדפדפן שולח אירוע כזה כשהאפליקציה "ראויה
+    // להתקנה" (יש manifest תקין + service worker). שומרים אותו כדי
+    // להפעיל את דיאלוג ההתקנה הרשמי של הדפדפן בלחיצת כפתור אחת.
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      installBtn.classList.remove('hidden');
+    });
+    installBtn.addEventListener('click', async () => {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      const choice = await deferredInstallPrompt.userChoice;
+      deferredInstallPrompt = null;
+      installBtn.classList.add('hidden');
+      if (choice.outcome === 'accepted') showToast('האפליקציה הותקנה בהצלחה!');
+    });
+    window.addEventListener('appinstalled', () => {
+      installBtn.classList.add('hidden');
+    });
+  }
+}
+$('close-ios-install-modal').addEventListener('click', () => $('ios-install-modal').classList.add('hidden'));
 
 $('register-form').addEventListener('submit', async (e) => {
   e.preventDefault();
