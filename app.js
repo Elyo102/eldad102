@@ -345,6 +345,27 @@ $('next-month').addEventListener('click', () => {
 });
 
 // ---------------------------------------------------------------------
+// ייצוא החודש המוצג לגיליון Google Sheets אמיתי (אפשר לשלוח לליסה וכו')
+// ---------------------------------------------------------------------
+$('export-sheet-btn').addEventListener('click', async () => {
+  // פותחים טאב ריק כבר עכשיו, בתוך אירוע הלחיצה עצמו - כדי שהדפדפן לא
+  // יחסום אותו כפופ-אפ (הוא היה חוסם אם היינו פותחים אותו רק אחרי ה-await)
+  const newTab = window.open('', '_blank');
+  try {
+    const monthKey = monthKeyOf(state.currentMonth);
+    const result = await callApi('POST', 'exportMonthSheet', { code: state.code, monthKey });
+    if (newTab) {
+      newTab.location.href = result.url;
+    } else {
+      showToast('הקישור נוצר, אך הדפדפן חסם את פתיחת הטאב. אפשר לאשר פתיחת חלונות קופצים ולנסות שוב.');
+    }
+  } catch (err) {
+    if (newTab) newTab.close();
+    showToast(err.message || 'שגיאה בייצוא הגיליון');
+  }
+});
+
+// ---------------------------------------------------------------------
 // מודאל הוספה/עריכה של משמרת
 // ---------------------------------------------------------------------
 function toggleTimeFields() {
