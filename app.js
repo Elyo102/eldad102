@@ -532,7 +532,7 @@ $('shift-form').addEventListener('submit', async (e) => {
       code: state.code, dateStr, startTime, endTime, notes, dayType, workplace,
       fileData, fileName, fileMimeType
     });
-    showToast(result.attachmentSent ? (result.message || 'נשמר בהצלחה') + ' - האישור נשלח לליסה' : (result.message || 'נשמר בהצלחה'));
+    showToast(result.attachmentSent ? (result.message || 'נשמר בהצלחה') + ' - האישור התקבל ויועבר לליסה' : (result.message || 'נשמר בהצלחה'));
     closeShiftModal();
     await refreshMonthKeepingSelection(dateStr);
   } catch (err) {
