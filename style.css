@@ -112,6 +112,28 @@ textarea.text-input { resize: vertical; }
 .btn-primary:active { background: var(--brand-dark); }
 .btn-danger { background: #fff; color: var(--danger); border: 1px solid var(--danger); }
 
+.btn-install {
+  background: #fff;
+  color: var(--brand-dark);
+  border: 1.5px dashed var(--brand);
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.btn-install .install-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  font-size: 12px;
+}
+
 .auth-links {
   display: flex;
   flex-direction: column;
