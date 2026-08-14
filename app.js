@@ -50,7 +50,7 @@ const state = {
 const $ = (id) => document.getElementById(id);
 
 function showScreen(id) {
-  ['screen-login', 'screen-register', 'screen-forgot', 'screen-app'].forEach(s => {
+  ['screen-login', 'screen-register', 'screen-forgot', 'screen-app', 'screen-admin-login', 'screen-admin-dashboard'].forEach(s => {
     $(s).classList.toggle('hidden', s !== id);
   });
 }
@@ -279,6 +279,142 @@ $('forgot-form').addEventListener('submit', async (e) => {
 $('logout-btn').addEventListener('click', () => {
   clearSession();
   state.code = null;
+  showScreen('screen-login');
+});
+
+// ---------------------------------------------------------------------
+// מסך ניהול (Admin) - אין session/טוקן, בדיוק כמו שאר המערכת: הסיסמה
+// נשלחת מחדש בכל קריאה. שומרים אותה רק בזיכרון (משתנה JS), לא ב-
+// localStorage - כדי שלא תישאר שמורה על המכשיר בין פתיחות. חוויית
+// "מילוי אוטומטי" (Windows Hello / Face ID) מגיעה ממנהל הסיסמאות של
+// הדפדפן/הטלפון על שדה הסיסמה, לא מאחסון בקוד עצמו.
+// ---------------------------------------------------------------------
+let adminPassword = null;
+const adminState = { users: [], monthKey: null };
+
+$('go-admin-login').addEventListener('click', () => showScreen('screen-admin-login'));
+
+$('admin-login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const password = $('admin-password').value;
+  const errBox = $('admin-login-error');
+  errBox.classList.add('hidden');
+  try {
+    await callApi('POST', 'adminLogin', { password });
+    adminPassword = password;
+    $('admin-password').value = '';
+    showScreen('screen-admin-dashboard');
+    await loadAdminDashboard();
+  } catch (err) {
+    errBox.textContent = err.message || 'שגיאה בכניסה';
+    errBox.classList.remove('hidden');
+  }
+});
+
+async function loadAdminDashboard() {
+  try {
+    const result = await callApi('POST', 'getAdminDashboard', { password: adminPassword });
+    adminState.users = result.users || [];
+    adminState.monthKey = result.monthKey || '';
+    renderAdminDashboard();
+  } catch (err) {
+    showToast(err.message || 'שגיאה בטעינת מסך הניהול');
+    if (/סיסמ/.test(err.message || '')) {
+      adminPassword = null;
+      showScreen('screen-admin-login');
+    }
+  }
+}
+
+function renderAdminDashboard() {
+  const users = adminState.users;
+
+  const activeCount = users.filter(u => u.status === 'פעיל').length;
+  const totalHours = users.reduce((sum, u) => sum + (Number(u.monthTotal) || 0), 0);
+  const issuesCount = users.filter(u => (Number(u.issueCount) || 0) > 0).length;
+
+  $('admin-summary').innerHTML = `
+    <div class="admin-summary-item">
+      <div class="admin-summary-val">${activeCount}</div>
+      <div class="admin-summary-label">משתמשים פעילים</div>
+    </div>
+    <div class="admin-summary-item">
+      <div class="admin-summary-val">${formatHours(totalHours)}</div>
+      <div class="admin-summary-label">סה"כ שעות החודש</div>
+    </div>
+    <div class="admin-summary-item">
+      <div class="admin-summary-val">${issuesCount}</div>
+      <div class="admin-summary-label">משתמשים עם ממצאים</div>
+    </div>
+  `;
+
+  const body = $('admin-table-body');
+  if (!users.length) {
+    body.innerHTML = '<tr><td colspan="7" class="admin-empty">אין משתמשים להצגה</td></tr>';
+    return;
+  }
+
+  body.innerHTML = users.map(u => {
+    const isActive = u.status === 'פעיל';
+    const lastLogin = u.lastLoginDate ? escapeHtml(u.lastLoginDate + (u.lastLoginTime ? ' ' + u.lastLoginTime : '')) : '—';
+    const issueCount = Number(u.issueCount) || 0;
+    const issueBadge = issueCount > 0
+      ? `<span class="admin-badge admin-badge-warn">${issueCount}</span>`
+      : '<span class="admin-badge admin-badge-ok">0</span>';
+    return `
+      <tr>
+        <td>${escapeHtml(u.name || '')}</td>
+        <td>${escapeHtml(u.code || '')}</td>
+        <td>${formatHours(Number(u.monthTotal) || 0)}</td>
+        <td>${lastLogin}</td>
+        <td>${issueBadge}</td>
+        <td><span class="admin-badge ${isActive ? 'admin-badge-ok' : 'admin-badge-off'}">${escapeHtml(u.status || '')}</span></td>
+        <td class="admin-actions-cell">
+          <button type="button" class="admin-action-btn" data-action="toggle" data-code="${escapeHtml(u.code || '')}" data-active="${isActive ? '0' : '1'}">${isActive ? 'השבת' : 'הפעל'}</button>
+          <button type="button" class="admin-action-btn" data-action="resend" data-code="${escapeHtml(u.code || '')}">שלח קוד</button>
+          <button type="button" class="admin-action-btn" data-action="reset" data-code="${escapeHtml(u.code || '')}">שנה קוד</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+$('admin-table-body').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.admin-action-btn');
+  if (!btn) return;
+  const action = btn.dataset.action;
+  const code = btn.dataset.code;
+
+  try {
+    if (action === 'toggle') {
+      const active = btn.dataset.active === '1';
+      if (!confirm(active
+        ? `להפעיל מחדש את המשתמש עם קוד ${code}?`
+        : `להשבית את המשתמש עם קוד ${code}? הוא לא יוכל להתחבר עד שיופעל מחדש.`)) return;
+      const result = await callApi('POST', 'adminSetUserStatus', { password: adminPassword, code, active });
+      showToast(result.message || 'עודכן בהצלחה');
+      await loadAdminDashboard();
+    } else if (action === 'resend') {
+      if (!confirm(`לשלוח מחדש את הקוד האישי למייל הרשום של המשתמש ${code}?`)) return;
+      const result = await callApi('POST', 'adminResendCode', { password: adminPassword, code });
+      showToast(result.message || 'הקוד נשלח');
+    } else if (action === 'reset') {
+      const newCode = prompt('קוד אישי חדש (3-8 ספרות):');
+      if (!newCode) return;
+      const result = await callApi('POST', 'adminResetUserCode', { password: adminPassword, oldCode: code, newCode: newCode.trim() });
+      showToast(result.message || 'הקוד עודכן');
+      await loadAdminDashboard();
+    }
+  } catch (err) {
+    showToast(err.message || 'שגיאה בביצוע הפעולה');
+  }
+});
+
+$('admin-refresh-btn').addEventListener('click', loadAdminDashboard);
+
+$('admin-logout-btn').addEventListener('click', () => {
+  adminPassword = null;
+  adminState.users = [];
   showScreen('screen-login');
 });
 
