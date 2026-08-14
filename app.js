@@ -15,6 +15,12 @@ const MONTH_NAMES = ['ינואר','פברואר','מרץ','אפריל','מאי',
 // סוגי יום שיש להם שעות קבועות (לא צריך שעת כניסה/יציאה)
 const FIXED_HOUR_TYPES = new Set(['חופש', 'מחלה', 'מילואים', 'יטבתה']);
 
+// סוגי יום שמאפשרים צירוף אישור (נשלח אוטומטית לליסה במשאבי אנוש)
+const ATTACHMENT_TYPES = new Set(['מחלה', 'מילואים']);
+// גודל קובץ מקסימלי לצירוף - מגבלה שמרנית כדי להישאר בטוח מתחת למגבלת
+// המצורפים של Gmail/MailApp (25MB לכלל המייל, לא רק לקובץ)
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
 // צבע לכל סוג יום, לתצוגת הפירוט החודשי (כרטיס הסטטיסטיקה)
 const DAY_TYPE_COLORS = {
   'רגיל': 'var(--c-regular)',
@@ -422,6 +428,7 @@ $('export-sheet-btn').addEventListener('click', async () => {
 function toggleTimeFields() {
   const type = $('shift-daytype').value;
   $('time-fields').classList.toggle('hidden', FIXED_HOUR_TYPES.has(type));
+  $('attachment-field').classList.toggle('hidden', !ATTACHMENT_TYPES.has(type));
 }
 $('shift-daytype').addEventListener('change', toggleTimeFields);
 
@@ -435,9 +442,27 @@ function openShiftModal(dateStr, existing) {
   $('shift-end').value = existing?.endTime || '';
   $('shift-workplace').value = existing?.workplace || '';
   $('shift-notes').value = (existing?.notes || '').replace(/\*\*\*/g, '').trim();
+  $('shift-attachment').value = ''; // תמיד מתחילים ריק - קובץ מצורף לא נשמר/מוצג מחדש בעריכה
   $('delete-shift-btn').classList.toggle('hidden', !existing);
   toggleTimeFields();
   $('shift-modal').classList.remove('hidden');
+}
+
+// קורא את הקובץ שנבחר כ-base64 (בלי ה-prefix "data:...;base64,") כדי
+// שאפשר יהיה לשלוח אותו בגוף בקשת ה-POST הרגילה (text/plain, כמו כל
+// שאר הקריאות ל-API - לא משתמשים ב-FormData/multipart בכוונה, כדי
+// לא לשבור את מנגנון ה-CORS-preflight-avoidance הקיים).
+function readFileAsBase64_(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result || '';
+      const base64 = String(result).split(',')[1] || '';
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('שגיאה בקריאת הקובץ'));
+    reader.readAsDataURL(file);
+  });
 }
 
 function defaultNewDate() {
@@ -477,13 +502,37 @@ $('shift-form').addEventListener('submit', async (e) => {
     return;
   }
 
+  // קובץ מצורף (אופציונלי) - רק לסוגי יום שרלוונטיים (מחלה/מילואים)
+  let fileData = null, fileName = '', fileMimeType = '';
+  if (ATTACHMENT_TYPES.has(dayType)) {
+    const fileInput = $('shift-attachment');
+    const file = fileInput.files && fileInput.files[0];
+    if (file) {
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        errBox.textContent = 'הקובץ גדול מדי (מקסימום 5MB) - בחר קובץ קטן יותר';
+        errBox.classList.remove('hidden');
+        return;
+      }
+      try {
+        fileData = await readFileAsBase64_(file);
+        fileName = file.name;
+        fileMimeType = file.type || 'application/octet-stream';
+      } catch (err) {
+        errBox.textContent = 'שגיאה בקריאת הקובץ המצורף';
+        errBox.classList.remove('hidden');
+        return;
+      }
+    }
+  }
+
   try {
     // תמיד saveManualShift - זו הדרך היחידה שמבטיחה סימון ***
     // ומגינה על הדיווח מפני תיקון אוטומטי של המערכת.
     const result = await callApi('POST', 'saveManualShift', {
-      code: state.code, dateStr, startTime, endTime, notes, dayType, workplace
+      code: state.code, dateStr, startTime, endTime, notes, dayType, workplace,
+      fileData, fileName, fileMimeType
     });
-    showToast(result.message || 'נשמר בהצלחה');
+    showToast(result.attachmentSent ? (result.message || 'נשמר בהצלחה') + ' - האישור נשלח לליסה' : (result.message || 'נשמר בהצלחה'));
     closeShiftModal();
     await refreshMonthKeepingSelection(dateStr);
   } catch (err) {
