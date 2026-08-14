@@ -75,6 +75,7 @@
   <header class="app-header">
     <h1>מסך ניהול</h1>
     <div class="header-actions">
+      <button class="icon-btn" id="admin-broadcast-btn" title="שדר הודעה לכולם">📢</button>
       <button class="icon-btn" id="admin-refresh-btn" title="רענון">🔄</button>
       <button class="icon-btn" id="admin-logout-btn" title="יציאה">🚪</button>
     </div>
@@ -176,6 +177,7 @@
         <span id="user-name">-</span>
       </div>
       <div class="header-actions">
+        <button id="push-toggle-btn" class="icon-btn" title="התראות">🔔</button>
         <button id="help-btn-app" class="icon-btn" title="עזרה">?</button>
         <button id="logout-btn" class="icon-btn" title="יציאה">יציאה</button>
       </div>
@@ -329,9 +331,37 @@
   </div>
 </div>
 
+<!-- ===================== מודאל: כתיבת התראת פוש (מסך ניהול) ===================== -->
+<div id="push-compose-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="push-compose-title">שליחת התראה</h2>
+      <button class="icon-btn" id="close-push-compose-modal">✕</button>
+    </div>
+    <form id="push-compose-form">
+      <label class="field-label">כותרת ההודעה</label>
+      <input type="text" id="push-title" class="text-input" maxlength="60" placeholder="לדוגמה: תזכורת" required>
+
+      <label class="field-label">תוכן ההודעה</label>
+      <textarea id="push-body" class="text-input" rows="3" maxlength="200" placeholder="לדוגמה: אל תשכחו לדווח שעות עד סוף השבוע" required></textarea>
+
+      <div id="push-compose-error" class="error-msg hidden"></div>
+
+      <div class="modal-actions">
+        <button type="submit" class="btn btn-primary">שליחה</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div id="toast" class="toast hidden"></div>
 <div id="loading-overlay" class="loading-overlay hidden"><div class="spinner"></div></div>
 
+<!-- SDK של Firebase (גרסת compat - עובדת עם תגי <script> רגילים, בלי
+     import/module, כדי להשתלב באפליקציה הקיימת בלי שינויים מבניים) -
+     נדרש להתראות פוש (ראה FIREBASE_CONFIG/VAPID_KEY בתחילת app.js). -->
+<script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-messaging-compat.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
