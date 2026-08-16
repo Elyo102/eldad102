@@ -53,7 +53,7 @@ const state = {
 const $ = (id) => document.getElementById(id);
 
 function showScreen(id) {
-  ['screen-login', 'screen-register', 'screen-forgot', 'screen-app', 'screen-admin'].forEach(s => {
+  ['screen-login', 'screen-register', 'screen-forgot', 'screen-app', 'screen-admin', 'screen-team'].forEach(s => {
     $(s).classList.toggle('hidden', s !== id);
   });
 }
@@ -112,16 +112,18 @@ async function callApi(method, action, params) {
 // ---------------------------------------------------------------------
 // אחסון מקומי (זוכר התחברות בין פתיחות)
 // ---------------------------------------------------------------------
-function saveSession(code, name, isAdmin) {
+function saveSession(code, name, isAdmin, isManager) {
   localStorage.setItem('ds102_code', code);
   localStorage.setItem('ds102_name', name || '');
   localStorage.setItem('ds102_admin', isAdmin ? '1' : '');
+  localStorage.setItem('ds102_manager', isManager ? '1' : '');
 }
 function loadSession() {
   return {
     code: localStorage.getItem('ds102_code'),
     name: localStorage.getItem('ds102_name'),
-    isAdmin: localStorage.getItem('ds102_admin') === '1'
+    isAdmin: localStorage.getItem('ds102_admin') === '1',
+    isManager: localStorage.getItem('ds102_manager') === '1'
   };
 }
 function clearSession() {
@@ -138,7 +140,7 @@ async function tryAutoLogin() {
   try {
     const result = await callApi('GET', 'login', { code: saved.code });
     if (result.valid) {
-      enterApp(result.code || saved.code, result.name || saved.name, result.isAdmin);
+      enterApp(result.code || saved.code, result.name || saved.name, result.isAdmin, result.isManager);
     } else {
       clearSession();
       showScreen('screen-login');
@@ -146,7 +148,7 @@ async function tryAutoLogin() {
   } catch (err) {
     // אין אינטרנט/שגיאת שרת - עדיין ניכנס עם המידע השמור, ברוח offline-first
     if (saved.code) {
-      enterApp(saved.code, saved.name, saved.isAdmin);
+      enterApp(saved.code, saved.name, saved.isAdmin, saved.isManager);
       showToast('לא הצלחתי לאמת מול השרת כרגע, עובד/ת במצב לא מקוון');
     } else {
       showScreen('screen-login');
@@ -154,13 +156,15 @@ async function tryAutoLogin() {
   }
 }
 
-function enterApp(code, name, isAdmin) {
+function enterApp(code, name, isAdmin, isManager) {
   state.code = code;
   state.name = name;
   state.isAdmin = !!isAdmin;
-  saveSession(code, name, state.isAdmin);
+  state.isManager = !!isManager || state.isAdmin;
+  saveSession(code, name, state.isAdmin, state.isManager);
   $('user-name').textContent = name || 'שלום';
   $('admin-btn').classList.toggle('hidden', !state.isAdmin);
+  $('team-btn').classList.toggle('hidden', !state.isManager);
   const now = new Date();
   state.currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   showScreen('screen-app');
@@ -175,7 +179,7 @@ $('login-form').addEventListener('submit', async (e) => {
   try {
     const result = await callApi('GET', 'login', { code });
     if (result.valid) {
-      enterApp(result.code || code, result.name, result.isAdmin);
+      enterApp(result.code || code, result.name, result.isAdmin, result.isManager);
     } else {
       $('login-error').textContent = 'קוד לא תקין';
       $('login-error').classList.remove('hidden');
@@ -373,13 +377,13 @@ function renderAdminUserCard(u) {
     <div style="flex:1;min-width:200px">
       <div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:15px">
         <span style="width:9px;height:9px;border-radius:50%;background:${dotColor};display:inline-block"></span>
-        ${escapeHtml(u.name || '')} ${u.isAdmin ? '👑' : ''} ${u.messagingBlocked ? '🚫' : ''}
+        ${escapeHtml(u.name || '')} ${u.isAdmin ? '👑' : ''} ${u.isManager ? '🛡️' : ''} ${u.messagingBlocked ? '🚫' : ''}
       </div>
       <div style="font-size:12.5px;color:var(--text-muted);margin-top:3px">
         קוד: ${escapeHtml(u.code)} · ${rel.label} · ${hoursLabel} שעות החודש
       </div>
       <div style="font-size:12.5px;margin-top:2px;color:${isActive ? 'var(--success)' : 'var(--danger)'}">
-        ${isActive ? 'פעיל' : 'לא פעיל'} ${u.messagingBlocked ? '· חסום משליחת הודעות' : ''}
+        ${isActive ? 'פעיל' : 'לא פעיל'} ${u.isManager ? '· מנהל/ת צוות' : ''} ${u.messagingBlocked ? '· חסום משליחת הודעות' : ''}
       </div>
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
@@ -387,6 +391,7 @@ function renderAdminUserCard(u) {
       <button class="tool-btn admin-resend-btn" data-code="${escapeHtml(u.code)}" style="width:auto;padding:6px 12px">שלח קוד</button>
       <button class="tool-btn admin-message-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">שלח הודעה</button>
       ${u.isAdmin ? '' : `<button class="tool-btn admin-block-msg-btn" data-code="${escapeHtml(u.code)}" data-blocked="${u.messagingBlocked ? '1' : '0'}" style="width:auto;padding:6px 12px${u.messagingBlocked ? ';color:var(--danger)' : ''}">${u.messagingBlocked ? 'בטל חסימת הודעות' : 'חסום הודעות'}</button>`}
+      ${u.isAdmin ? '' : `<button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-manager="${u.isManager ? '1' : '0'}" style="width:auto;padding:6px 12px">${u.isManager ? 'הסר ניהול צוות' : 'הפוך למנהל/ת צוות'}</button>`}
     </div>
   `;
   return card;
@@ -397,6 +402,20 @@ $('admin-users-list').addEventListener('click', async (e) => {
   const resendBtn = e.target.closest('.admin-resend-btn');
   const msgBtn = e.target.closest('.admin-message-btn');
   const blockMsgBtn = e.target.closest('.admin-block-msg-btn');
+  const roleBtn = e.target.closest('.admin-role-btn');
+
+  if (roleBtn) {
+    const code = roleBtn.dataset.code;
+    const makeManager = roleBtn.dataset.manager !== '1';
+    try {
+      const res = await callApi('POST', 'adminSetUserRole', { adminCode: state.code, targetCode: code, makeManager });
+      showToast(res.message || 'התפקיד עודכן');
+      loadAdminUsers();
+    } catch (err) {
+      showToast(err.message || 'שגיאה בעדכון תפקיד');
+    }
+    return;
+  }
 
   if (blockMsgBtn) {
     const code = blockMsgBtn.dataset.code;
@@ -460,6 +479,116 @@ $('admin-broadcast-btn').addEventListener('click', () => {
 
 $('close-admin-message-modal').addEventListener('click', () => {
   $('admin-message-modal').classList.add('hidden');
+});
+
+// ---------------------------------------------------------------------
+// הוספת מנהל/ת צוות חדש/ה (למשל ליסה)
+// ---------------------------------------------------------------------
+$('admin-add-manager-btn').addEventListener('click', () => {
+  $('new-manager-first').value = '';
+  $('new-manager-last').value = '';
+  $('new-manager-email').value = '';
+  $('add-manager-error').classList.add('hidden');
+  $('add-manager-result').classList.add('hidden');
+  $('add-manager-modal').classList.remove('hidden');
+});
+$('close-add-manager-modal').addEventListener('click', () => {
+  $('add-manager-modal').classList.add('hidden');
+  loadAdminUsers(); // אולי נוצר בהצלחה - נרענן את הרשימה
+});
+$('add-manager-submit-btn').addEventListener('click', async () => {
+  const firstName = $('new-manager-first').value.trim();
+  const lastName = $('new-manager-last').value.trim();
+  const email = $('new-manager-email').value.trim();
+  const errBox = $('add-manager-error');
+  const resultBox = $('add-manager-result');
+  errBox.classList.add('hidden');
+  resultBox.classList.add('hidden');
+  try {
+    const res = await callApi('POST', 'adminCreateManagerAccount', {
+      adminCode: state.code, firstName, lastName, email
+    });
+    resultBox.textContent = res.success
+      ? `נוצר בהצלחה! הקוד האישי: ${res.code} (נשלח גם למייל)`
+      : (res.message || 'לא הצלחתי ליצור את החשבון');
+    resultBox.classList.remove('hidden');
+  } catch (err) {
+    errBox.textContent = err.message || 'שגיאה ביצירת החשבון';
+    errBox.classList.remove('hidden');
+  }
+});
+
+// ---------------------------------------------------------------------
+// מסך צוות ניהול - הודעות בין מנהל-על, מנהלי צוות, ליסה
+// ---------------------------------------------------------------------
+let teamMessageTarget = null;
+
+async function loadTeamList() {
+  const list = $('team-list');
+  const empty = $('team-empty');
+  list.innerHTML = '';
+  try {
+    const result = await callApi('GET', 'listManagementTeam', { code: state.code });
+    const team = result.team || [];
+    if (team.length === 0) {
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+    team.forEach(m => {
+      const card = document.createElement('div');
+      card.className = 'shift-card';
+      card.innerHTML = `
+        <div class="shift-details">
+          <div class="shift-type">${escapeHtml(m.name || '')} ${m.isAdmin ? '👑' : '🛡️'}</div>
+          <div class="shift-time">קוד: ${escapeHtml(m.code)}</div>
+        </div>
+        <button class="tool-btn team-message-btn" data-code="${escapeHtml(m.code)}" data-name="${escapeHtml(m.name || '')}" style="width:auto;padding:8px 14px">שלח הודעה</button>
+      `;
+      list.appendChild(card);
+    });
+  } catch (err) {
+    showToast(err.message || 'שגיאה בטעינת צוות הניהול');
+  }
+}
+
+$('team-list').addEventListener('click', (e) => {
+  const btn = e.target.closest('.team-message-btn');
+  if (!btn) return;
+  teamMessageTarget = btn.dataset.code;
+  $('team-message-modal-title').textContent = 'הודעה ל-' + btn.dataset.name;
+  $('team-message-text').value = '';
+  $('team-message-error').classList.add('hidden');
+  $('team-message-modal').classList.remove('hidden');
+});
+
+$('team-btn').addEventListener('click', () => {
+  showScreen('screen-team');
+  loadTeamList();
+});
+$('team-back-btn').addEventListener('click', () => showScreen('screen-app'));
+
+$('close-team-message-modal').addEventListener('click', () => {
+  $('team-message-modal').classList.add('hidden');
+});
+$('team-message-send-btn').addEventListener('click', async () => {
+  const text = $('team-message-text').value.trim();
+  const errBox = $('team-message-error');
+  if (!text) {
+    errBox.textContent = 'יש להזין תוכן להודעה';
+    errBox.classList.remove('hidden');
+    return;
+  }
+  try {
+    const res = await callApi('POST', 'sendManagerMessage', {
+      fromCode: state.code, toCode: teamMessageTarget, messageText: text
+    });
+    showToast(res.message || 'ההודעה נשלחה');
+    $('team-message-modal').classList.add('hidden');
+  } catch (err) {
+    errBox.textContent = err.message || 'שגיאה בשליחת ההודעה';
+    errBox.classList.remove('hidden');
+  }
 });
 
 $('admin-message-send-btn').addEventListener('click', async () => {
