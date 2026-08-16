@@ -164,7 +164,7 @@ function enterApp(code, name, isAdmin, isManager) {
   state.isManager = !!isManager || state.isAdmin;
   saveSession(code, name, state.isAdmin, state.isManager);
   $('user-name').textContent = name || 'שלום';
-  $('admin-btn').classList.toggle('hidden', !state.isAdmin);
+  $('admin-btn').classList.toggle('hidden', !state.isManager);
   $('team-btn').classList.toggle('hidden', !state.isManager);
   const now = new Date();
   state.currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -388,11 +388,11 @@ function renderAdminUserCard(u) {
       </div>
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
-      ${u.isAdmin ? '' : `<button class="tool-btn admin-toggle-btn" data-code="${escapeHtml(u.code)}" data-status="${isActive ? 'פעיל' : 'לא פעיל'}" style="width:auto;padding:6px 12px">${isActive ? 'השבת' : 'הפעל'}</button>`}
+      ${(u.isAdmin || !state.isAdmin) ? '' : `<button class="tool-btn admin-toggle-btn" data-code="${escapeHtml(u.code)}" data-status="${isActive ? 'פעיל' : 'לא פעיל'}" style="width:auto;padding:6px 12px">${isActive ? 'השבת' : 'הפעל'}</button>`}
       <button class="tool-btn admin-resend-btn" data-code="${escapeHtml(u.code)}" style="width:auto;padding:6px 12px">שלח קוד</button>
       <button class="tool-btn admin-message-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">שלח הודעה</button>
       ${u.isAdmin ? '' : `<button class="tool-btn admin-block-msg-btn" data-code="${escapeHtml(u.code)}" data-blocked="${u.messagingBlocked ? '1' : '0'}" style="width:auto;padding:6px 12px${u.messagingBlocked ? ';color:var(--danger)' : ''}">${u.messagingBlocked ? 'בטל חסימת הודעות' : 'חסום הודעות'}</button>`}
-      ${u.isAdmin ? '' : `<button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-manager="${u.isManager ? '1' : '0'}" style="width:auto;padding:6px 12px">${u.isManager ? 'הסר ניהול צוות' : 'הפוך למנהל/ת צוות'}</button>`}
+      ${(u.isAdmin || !state.isAdmin) ? '' : `<button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-manager="${u.isManager ? '1' : '0'}" style="width:auto;padding:6px 12px">${u.isManager ? 'הסר ניהול צוות' : 'הפוך למנהל/ת צוות'}</button>`}
       <button class="tool-btn admin-docs-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">מסמכים</button>
       <button class="tool-btn admin-reminder-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">תזכורת</button>
     </div>
@@ -480,7 +480,9 @@ $('admin-users-list').addEventListener('click', async (e) => {
 
 $('admin-btn').addEventListener('click', () => {
   showScreen('screen-admin');
+  $('admin-add-manager-btn').classList.toggle('hidden', !state.isAdmin);
   loadAdminUsers();
+  loadOpenAlerts();
 });
 $('admin-back-btn').addEventListener('click', () => showScreen('screen-app'));
 
@@ -1422,6 +1424,47 @@ $('reminder-submit-btn').addEventListener('click', async () => {
   } catch (err) {
     errBox.textContent = err.message || 'שגיאה בקביעת התזכורת';
     errBox.classList.remove('hidden');
+  }
+});
+
+// ---------------------------------------------------------------------
+// התראות פתוחות (קריאת פתע / החלפה צרכי מערכת) - בליטה אדומה בדאשבורד
+// ---------------------------------------------------------------------
+async function loadOpenAlerts() {
+  const section = $('open-alerts-section');
+  const list = $('open-alerts-list');
+  try {
+    const result = await callApi('GET', 'listOpenAlerts', { code: state.code });
+    const alerts = result.alerts || [];
+    list.innerHTML = '';
+    if (alerts.length === 0) {
+      section.classList.add('hidden');
+      return;
+    }
+    section.classList.remove('hidden');
+    alerts.forEach(a => {
+      const card = document.createElement('div');
+      card.className = 'alert-card';
+      card.innerHTML = `
+        <div style="font-weight:700;color:var(--danger)">${escapeHtml(a.dayType)} - ${escapeHtml(a.employeeName)}</div>
+        <div style="font-size:13px;margin-top:3px">${escapeHtml(a.date)} · נימוק: ${escapeHtml(a.notes || '')}</div>
+        <button class="tool-btn alert-handled-btn" data-id="${escapeHtml(a.id)}" style="width:auto;padding:6px 12px;margin-top:8px">סמן כטופל</button>
+      `;
+      list.appendChild(card);
+    });
+  } catch (err) {
+    showToast(err.message || 'שגיאה בטעינת ההתראות');
+  }
+}
+
+$('open-alerts-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.alert-handled-btn');
+  if (!btn) return;
+  try {
+    await callApi('POST', 'adminMarkAlertHandled', { adminCode: state.code, alertId: btn.dataset.id });
+    loadOpenAlerts();
+  } catch (err) {
+    showToast(err.message || 'שגיאה בעדכון ההתראה');
   }
 });
 
