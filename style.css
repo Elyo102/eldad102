@@ -488,3 +488,17 @@ textarea.text-input { resize: vertical; }
   60% { transform: scale(1.35); opacity: 0.7; }
   100% { transform: scale(1.7); opacity: 0; }
 }
+
+/* ---------- כרטיס התראה פתוחה (קריאת פתע / החלפה צרכי מערכת) ---------- */
+.alert-card {
+  background: #fdecea;
+  border: 2px solid var(--danger);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  animation: alertPulse 1.8s ease-in-out infinite;
+}
+@keyframes alertPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(193,39,45,0.25); }
+  50% { box-shadow: 0 0 0 6px rgba(193,39,45,0); }
+}
