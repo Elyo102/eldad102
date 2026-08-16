@@ -125,6 +125,7 @@
       </div>
       <div class="header-actions">
         <button id="help-btn-app" class="icon-btn" title="עזרה">?</button>
+        <button id="admin-btn" class="icon-btn hidden" title="ניהול מערכת">⚙</button>
         <button id="logout-btn" class="icon-btn" title="יציאה">יציאה</button>
       </div>
     </div>
@@ -169,6 +170,39 @@
     <button id="clear-month-btn" class="tool-btn tool-btn-danger">נקה חודש</button>
   </nav>
 </section>
+
+<!-- ===================== מסך ניהול מערכת (מנהל בלבד) ===================== -->
+<section id="screen-admin" class="screen hidden">
+  <header class="app-header">
+    <div class="header-top">
+      <div class="user-info"><span>ניהול מערכת</span></div>
+      <div class="header-actions">
+        <button id="admin-back-btn" class="icon-btn" title="חזרה">חזרה</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <button id="admin-broadcast-btn" class="btn btn-primary" style="margin-bottom:16px">שלח הודעה לכולם</button>
+    <div id="admin-users-list"></div>
+    <div id="admin-empty" class="empty-state hidden">לא נמצאו משתמשים</div>
+  </main>
+</section>
+
+<!-- ===================== מודאל: שליחת הודעה (מנהל) ===================== -->
+<div id="admin-message-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="admin-message-modal-title">שליחת הודעה</h2>
+      <button class="icon-btn" id="close-admin-message-modal">✕</button>
+    </div>
+    <textarea id="admin-message-text" class="text-input" rows="4" placeholder="תוכן ההודעה"></textarea>
+    <div id="admin-message-error" class="error-msg hidden"></div>
+    <div class="modal-actions">
+      <button id="admin-message-send-btn" class="btn btn-primary">שלח</button>
+    </div>
+  </div>
+</div>
 
 <!-- ===================== מודאל: הוספה/עריכה של משמרת ===================== -->
 <div id="shift-modal" class="modal hidden">
