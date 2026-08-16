@@ -3,9 +3,37 @@
  *  שומר במטמון את קבצי המעטפת (HTML/CSS/JS/אייקונים) כדי שהאפליקציה
  *  תיפתח מהר גם ברשת חלשה. קריאות ה-API (script.google.com) תמיד
  *  הולכות ישירות לרשת - לא נשמרות במטמון, כי אלה נתונים חיים.
+ *
+ *  בנוסף: מטפל בהתראות Push (Firebase Cloud Messaging) שמגיעות גם
+ *  כשהאפליקציה סגורה לגמרי - זו הסיבה שחייבים לטעון את Firebase כאן,
+ *  לא רק ב-app.js (ש"ישן" ברקע כשהאפליקציה סגורה).
  * ===================================================================== */
 
-const CACHE_NAME = 'ds102-shell-v7';
+importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js');
+
+// אותו קונפיג ציבורי כמו ב-app.js - לא סודי, ראה הסבר שם.
+firebase.initializeApp({
+  apiKey: "AIzaSyAAknVzs43Ruk9tuEV-dziswUNK16xFdWY",
+  authDomain: "fire102report.firebaseapp.com",
+  projectId: "fire102report",
+  storageBucket: "fire102report.firebasestorage.app",
+  messagingSenderId: "306754079111",
+  appId: "1:306754079111:web:7aae9e1823df2da640ab22"
+});
+
+const messaging = firebase.messaging();
+messaging.onBackgroundMessage((payload) => {
+  const title = (payload.notification && payload.notification.title) || 'דוח נוכחות כבאים';
+  const body = (payload.notification && payload.notification.body) || '';
+  self.registration.showNotification(title, {
+    body: body,
+    icon: './icons/icon-192.png',
+    badge: './icons/icon-192.png'
+  });
+});
+
+const CACHE_NAME = 'ds102-shell-v9';
 const SHELL_FILES = [
   './',
   './index.html',
