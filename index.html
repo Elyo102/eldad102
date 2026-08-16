@@ -45,59 +45,6 @@
       <button type="button" class="link-btn" id="go-forgot">שכחתי קוד אישי</button>
       <button type="button" class="link-btn" id="help-btn-login">מדריך שימוש קצר</button>
     </div>
-
-    <button type="button" class="link-btn link-btn-subtle" id="go-admin-login">כניסת מנהל</button>
-  </div>
-</section>
-
-<!-- ===================== מסך כניסת מנהל ===================== -->
-<section id="screen-admin-login" class="screen hidden">
-  <div class="auth-card">
-    <div class="logo">🔐</div>
-    <h1>כניסת מנהל</h1>
-
-    <form id="admin-login-form" autocomplete="on">
-      <input type="password" id="admin-password" placeholder="סיסמת מנהל" class="text-input"
-             autocomplete="current-password" required>
-      <button type="submit" class="btn btn-primary">כניסה</button>
-    </form>
-
-    <div id="admin-login-error" class="error-msg hidden"></div>
-
-    <div class="auth-links">
-      <button type="button" class="link-btn" data-back-to="screen-login">חזרה לכניסה רגילה</button>
-    </div>
-  </div>
-</section>
-
-<!-- ===================== מסך ניהול ===================== -->
-<section id="screen-admin-dashboard" class="screen hidden">
-  <header class="app-header">
-    <h1>מסך ניהול</h1>
-    <div class="header-actions">
-      <button class="icon-btn" id="admin-broadcast-btn" title="שדר הודעה לכולם">📢</button>
-      <button class="icon-btn" id="admin-refresh-btn" title="רענון">🔄</button>
-      <button class="icon-btn" id="admin-logout-btn" title="יציאה">🚪</button>
-    </div>
-  </header>
-
-  <div class="admin-summary" id="admin-summary"></div>
-
-  <div class="admin-table-wrap">
-    <table class="admin-table" id="admin-table">
-      <thead>
-        <tr>
-          <th>שם</th>
-          <th>קוד</th>
-          <th>שעות החודש</th>
-          <th>התחברות אחרונה</th>
-          <th>ממצאים</th>
-          <th>סטטוס</th>
-          <th>פעולות</th>
-        </tr>
-      </thead>
-      <tbody id="admin-table-body"></tbody>
-    </table>
   </div>
 </section>
 
@@ -177,7 +124,6 @@
         <span id="user-name">-</span>
       </div>
       <div class="header-actions">
-        <button id="push-toggle-btn" class="icon-btn" title="התראות">🔔</button>
         <button id="help-btn-app" class="icon-btn" title="עזרה">?</button>
         <button id="logout-btn" class="icon-btn" title="יציאה">יציאה</button>
       </div>
@@ -245,14 +191,27 @@
         <option value="יטבתה">יטבתה (25 שעות)</option>
         <option value="החלפה צרכי מערכת">החלפה צרכי מערכת</option>
         <option value="המשך משמרת">המשך משמרת (24+ שעות)</option>
+        <option value="משמרת מפוצלת">משמרת מפוצלת</option>
       </select>
 
       <div id="time-fields">
-        <label class="field-label">שעת כניסה</label>
+        <label class="field-label" id="shift-start-label">שעת כניסה</label>
         <input type="time" id="shift-start" class="text-input">
 
-        <label class="field-label">שעת יציאה</label>
+        <label class="field-label" id="shift-end-label">שעת יציאה</label>
         <input type="time" id="shift-end" class="text-input">
+      </div>
+
+      <div id="split-fields" class="hidden">
+        <div class="split-divider">מקטע 2 (אחרי ההפסקה)</div>
+        <label class="field-label">שעת כניסה - מקטע 2</label>
+        <input type="time" id="shift-start2" class="text-input">
+
+        <label class="field-label">שעת יציאה - מקטע 2</label>
+        <input type="time" id="shift-end2" class="text-input">
+
+        <label class="field-label">סוג ההפסקה</label>
+        <input type="text" id="shift-break-type" class="text-input" placeholder="לדוגמה: יציאה ללימודים">
       </div>
 
       <label class="field-label">מקום עבודה</label>
@@ -260,12 +219,6 @@
 
       <label class="field-label">הערות</label>
       <textarea id="shift-notes" class="text-input" rows="2"></textarea>
-
-      <div id="attachment-field" class="hidden">
-        <label class="field-label">אישור מצורף (תמונה או PDF, עד 5MB)</label>
-        <input type="file" id="shift-attachment" class="text-input" accept="image/*,application/pdf">
-        <div class="field-hint">הקובץ יישלח אוטומטית במייל לליסה במשאבי אנוש</div>
-      </div>
 
       <div id="shift-form-error" class="error-msg hidden"></div>
 
@@ -331,37 +284,9 @@
   </div>
 </div>
 
-<!-- ===================== מודאל: כתיבת התראת פוש (מסך ניהול) ===================== -->
-<div id="push-compose-modal" class="modal hidden">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h2 id="push-compose-title">שליחת התראה</h2>
-      <button class="icon-btn" id="close-push-compose-modal">✕</button>
-    </div>
-    <form id="push-compose-form">
-      <label class="field-label">כותרת ההודעה</label>
-      <input type="text" id="push-title" class="text-input" maxlength="60" placeholder="לדוגמה: תזכורת" required>
-
-      <label class="field-label">תוכן ההודעה</label>
-      <textarea id="push-body" class="text-input" rows="3" maxlength="200" placeholder="לדוגמה: אל תשכחו לדווח שעות עד סוף השבוע" required></textarea>
-
-      <div id="push-compose-error" class="error-msg hidden"></div>
-
-      <div class="modal-actions">
-        <button type="submit" class="btn btn-primary">שליחה</button>
-      </div>
-    </form>
-  </div>
-</div>
-
 <div id="toast" class="toast hidden"></div>
 <div id="loading-overlay" class="loading-overlay hidden"><div class="spinner"></div></div>
 
-<!-- SDK של Firebase (גרסת compat - עובדת עם תגי <script> רגילים, בלי
-     import/module, כדי להשתלב באפליקציה הקיימת בלי שינויים מבניים) -
-     נדרש להתראות פוש (ראה FIREBASE_CONFIG/VAPID_KEY בתחילת app.js). -->
-<script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/12.6.0/firebase-messaging-compat.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
