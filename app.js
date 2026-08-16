@@ -112,14 +112,16 @@ async function callApi(method, action, params) {
 // ---------------------------------------------------------------------
 // אחסון מקומי (זוכר התחברות בין פתיחות)
 // ---------------------------------------------------------------------
-function saveSession(code, name) {
+function saveSession(code, name, isAdmin) {
   localStorage.setItem('ds102_code', code);
   localStorage.setItem('ds102_name', name || '');
+  localStorage.setItem('ds102_admin', isAdmin ? '1' : '');
 }
 function loadSession() {
   return {
     code: localStorage.getItem('ds102_code'),
-    name: localStorage.getItem('ds102_name')
+    name: localStorage.getItem('ds102_name'),
+    isAdmin: localStorage.getItem('ds102_admin') === '1'
   };
 }
 function clearSession() {
@@ -136,7 +138,7 @@ async function tryAutoLogin() {
   try {
     const result = await callApi('GET', 'login', { code: saved.code });
     if (result.valid) {
-      enterApp(result.code || saved.code, result.name || saved.name);
+      enterApp(result.code || saved.code, result.name || saved.name, result.isAdmin);
     } else {
       clearSession();
       showScreen('screen-login');
@@ -144,7 +146,7 @@ async function tryAutoLogin() {
   } catch (err) {
     // אין אינטרנט/שגיאת שרת - עדיין ניכנס עם המידע השמור, ברוח offline-first
     if (saved.code) {
-      enterApp(saved.code, saved.name);
+      enterApp(saved.code, saved.name, saved.isAdmin);
       showToast('לא הצלחתי לאמת מול השרת כרגע, עובד/ת במצב לא מקוון');
     } else {
       showScreen('screen-login');
@@ -152,11 +154,13 @@ async function tryAutoLogin() {
   }
 }
 
-function enterApp(code, name) {
+function enterApp(code, name, isAdmin) {
   state.code = code;
   state.name = name;
-  saveSession(code, name);
+  state.isAdmin = !!isAdmin;
+  saveSession(code, name, state.isAdmin);
   $('user-name').textContent = name || 'שלום';
+  $('admin-btn').classList.toggle('hidden', !state.isAdmin);
   const now = new Date();
   state.currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   showScreen('screen-app');
@@ -171,7 +175,7 @@ $('login-form').addEventListener('submit', async (e) => {
   try {
     const result = await callApi('GET', 'login', { code });
     if (result.valid) {
-      enterApp(result.code || code, result.name);
+      enterApp(result.code || code, result.name, result.isAdmin);
     } else {
       $('login-error').textContent = 'קוד לא תקין';
       $('login-error').classList.remove('hidden');
@@ -283,6 +287,148 @@ $('logout-btn').addEventListener('click', () => {
   clearSession();
   state.code = null;
   showScreen('screen-login');
+});
+
+// ---------------------------------------------------------------------
+// מסך ניהול (מנהל בלבד) - רשימת משתמשים, השבתה/הפעלה, שליחת קוד, הודעות
+// ---------------------------------------------------------------------
+let adminMessageTarget = null; // null = הודעה לכולם
+
+function relativeLoginLabel(iso) {
+  if (!iso) return { label: 'מעולם לא התחבר', dot: 'gray' };
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const days = Math.floor(diffMs / 86400000);
+  if (days <= 0) return { label: 'התחבר/ה היום', dot: 'green' };
+  if (days === 1) return { label: 'התחבר/ה אתמול', dot: 'amber' };
+  if (days <= 7) return { label: 'לפני ' + days + ' ימים', dot: 'amber' };
+  return { label: 'לפני ' + days + ' ימים', dot: 'gray' };
+}
+
+async function loadAdminUsers() {
+  const list = $('admin-users-list');
+  const empty = $('admin-empty');
+  list.innerHTML = '';
+  try {
+    const result = await callApi('GET', 'adminListUsers', { code: state.code });
+    const users = result.users || [];
+    if (users.length === 0) {
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+    users.forEach(u => list.appendChild(renderAdminUserCard(u)));
+  } catch (err) {
+    showToast(err.message || 'שגיאה בטעינת רשימת המשתמשים');
+  }
+}
+
+function renderAdminUserCard(u) {
+  const card = document.createElement('div');
+  card.className = 'shift-card';
+  card.style.flexWrap = 'wrap';
+  card.style.alignItems = 'flex-start';
+
+  const rel = relativeLoginLabel(u.lastLoginAt);
+  const dotColor = rel.dot === 'green' ? '#2e7d32' : (rel.dot === 'amber' ? '#d38b00' : '#9e9e9e');
+  const isActive = u.status === 'פעיל';
+  const hoursLabel = (u.monthlyHours === null || u.monthlyHours === undefined) ? '—' : u.monthlyHours;
+
+  card.innerHTML = `
+    <div style="flex:1;min-width:200px">
+      <div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:15px">
+        <span style="width:9px;height:9px;border-radius:50%;background:${dotColor};display:inline-block"></span>
+        ${escapeHtml(u.name || '')} ${u.isAdmin ? '👑' : ''}
+      </div>
+      <div style="font-size:12.5px;color:var(--text-muted);margin-top:3px">
+        קוד: ${escapeHtml(u.code)} · ${rel.label} · ${hoursLabel} שעות החודש
+      </div>
+      <div style="font-size:12.5px;margin-top:2px;color:${isActive ? 'var(--success)' : 'var(--danger)'}">
+        ${isActive ? 'פעיל' : 'לא פעיל'}
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+      ${u.isAdmin ? '' : `<button class="tool-btn admin-toggle-btn" data-code="${escapeHtml(u.code)}" data-status="${isActive ? 'פעיל' : 'לא פעיל'}" style="width:auto;padding:6px 12px">${isActive ? 'השבת' : 'הפעל'}</button>`}
+      <button class="tool-btn admin-resend-btn" data-code="${escapeHtml(u.code)}" style="width:auto;padding:6px 12px">שלח קוד</button>
+      <button class="tool-btn admin-message-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">שלח הודעה</button>
+    </div>
+  `;
+  return card;
+}
+
+$('admin-users-list').addEventListener('click', async (e) => {
+  const toggleBtn = e.target.closest('.admin-toggle-btn');
+  const resendBtn = e.target.closest('.admin-resend-btn');
+  const msgBtn = e.target.closest('.admin-message-btn');
+
+  if (toggleBtn) {
+    const code = toggleBtn.dataset.code;
+    const newStatus = toggleBtn.dataset.status === 'פעיל' ? 'לא פעיל' : 'פעיל';
+    try {
+      const res = await callApi('POST', 'adminSetUserStatus', { adminCode: state.code, targetCode: code, newStatus });
+      showToast(res.message || 'הסטטוס עודכן');
+      loadAdminUsers();
+    } catch (err) {
+      showToast(err.message || 'שגיאה בעדכון סטטוס');
+    }
+    return;
+  }
+
+  if (resendBtn) {
+    const code = resendBtn.dataset.code;
+    try {
+      const res = await callApi('POST', 'adminResendCode', { adminCode: state.code, targetCode: code });
+      showToast(res.message || 'הקוד נשלח');
+    } catch (err) {
+      showToast(err.message || 'שגיאה בשליחת הקוד');
+    }
+    return;
+  }
+
+  if (msgBtn) {
+    adminMessageTarget = msgBtn.dataset.code;
+    $('admin-message-modal-title').textContent = 'הודעה ל-' + msgBtn.dataset.name;
+    $('admin-message-text').value = '';
+    $('admin-message-error').classList.add('hidden');
+    $('admin-message-modal').classList.remove('hidden');
+  }
+});
+
+$('admin-btn').addEventListener('click', () => {
+  showScreen('screen-admin');
+  loadAdminUsers();
+});
+$('admin-back-btn').addEventListener('click', () => showScreen('screen-app'));
+
+$('admin-broadcast-btn').addEventListener('click', () => {
+  adminMessageTarget = null;
+  $('admin-message-modal-title').textContent = 'הודעה לכולם';
+  $('admin-message-text').value = '';
+  $('admin-message-error').classList.add('hidden');
+  $('admin-message-modal').classList.remove('hidden');
+});
+
+$('close-admin-message-modal').addEventListener('click', () => {
+  $('admin-message-modal').classList.add('hidden');
+});
+
+$('admin-message-send-btn').addEventListener('click', async () => {
+  const text = $('admin-message-text').value.trim();
+  const errBox = $('admin-message-error');
+  if (!text) {
+    errBox.textContent = 'יש להזין תוכן להודעה';
+    errBox.classList.remove('hidden');
+    return;
+  }
+  try {
+    const res = await callApi('POST', 'adminSendMessage', {
+      adminCode: state.code, targetCode: adminMessageTarget, messageText: text
+    });
+    showToast(res.message || 'ההודעה נשלחה');
+    $('admin-message-modal').classList.add('hidden');
+  } catch (err) {
+    errBox.textContent = err.message || 'שגיאה בשליחת ההודעה';
+    errBox.classList.remove('hidden');
+  }
 });
 
 // ---------------------------------------------------------------------
