@@ -53,7 +53,7 @@ const state = {
 const $ = (id) => document.getElementById(id);
 
 function showScreen(id) {
-  ['screen-login', 'screen-register', 'screen-forgot', 'screen-app'].forEach(s => {
+  ['screen-login', 'screen-register', 'screen-forgot', 'screen-app', 'screen-admin'].forEach(s => {
     $(s).classList.toggle('hidden', s !== id);
   });
 }
