@@ -46,9 +46,26 @@
       <button type="button" class="link-btn" id="go-register">נרשמים לראשונה? הרשמה</button>
       <button type="button" class="link-btn" id="go-forgot">שכחתי קוד אישי</button>
       <button type="button" class="link-btn" id="help-btn-login">מדריך שימוש קצר</button>
+      <button type="button" class="link-btn" id="go-admin-login" style="opacity:0.65">כניסת מנהל</button>
     </div>
   </div>
 </section>
+
+<!-- ===================== מודאל: כניסת מנהל ===================== -->
+<div id="admin-login-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>כניסת מנהל</h2>
+      <button class="icon-btn" id="close-admin-login-modal">✕</button>
+    </div>
+    <form id="admin-login-form" autocomplete="off">
+      <input type="text" id="admin-login-code" inputmode="numeric" pattern="[0-9]*" maxlength="8"
+             placeholder="קוד מנהל" class="big-input" required>
+      <button type="submit" class="btn btn-primary">כניסה למסך ניהול</button>
+    </form>
+    <div id="admin-login-error" class="error-msg hidden"></div>
+  </div>
+</div>
 
 <!-- ===================== מודאל: הוראות התקנה לאייפון ===================== -->
 <div id="ios-install-modal" class="modal hidden">
@@ -128,6 +145,7 @@
       <div class="header-actions">
         <button id="help-btn-app" class="icon-btn" title="עזרה">?</button>
         <button id="enable-push-btn" class="icon-btn" title="קבלת התראות">🔔</button>
+        <button id="send-admin-message-btn" class="icon-btn" title="שלח הודעה למנהל">✉</button>
         <button id="admin-btn" class="icon-btn hidden" title="ניהול מערכת">⚙</button>
         <button id="logout-btn" class="icon-btn" title="יציאה">יציאה</button>
       </div>
@@ -203,6 +221,21 @@
     <div id="admin-message-error" class="error-msg hidden"></div>
     <div class="modal-actions">
       <button id="admin-message-send-btn" class="btn btn-primary">שלח</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== מודאל: שליחת הודעה למנהל (כבאי רגיל) ===================== -->
+<div id="user-message-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>שליחת הודעה למנהל המערכת</h2>
+      <button class="icon-btn" id="close-user-message-modal">✕</button>
+    </div>
+    <textarea id="user-message-text" class="text-input" rows="4" placeholder="תוכן ההודעה"></textarea>
+    <div id="user-message-error" class="error-msg hidden"></div>
+    <div class="modal-actions">
+      <button id="user-message-send-btn" class="btn btn-primary">שלח</button>
     </div>
   </div>
 </div>
