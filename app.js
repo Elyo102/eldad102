@@ -188,6 +188,42 @@ $('login-form').addEventListener('submit', async (e) => {
 
 $('go-register').addEventListener('click', () => showScreen('screen-register'));
 $('go-forgot').addEventListener('click', () => showScreen('screen-forgot'));
+
+$('go-admin-login').addEventListener('click', () => {
+  $('admin-login-error').classList.add('hidden');
+  $('admin-login-code').value = '';
+  $('admin-login-modal').classList.remove('hidden');
+});
+$('close-admin-login-modal').addEventListener('click', () => {
+  $('admin-login-modal').classList.add('hidden');
+});
+$('admin-login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const code = $('admin-login-code').value.trim();
+  const errBox = $('admin-login-error');
+  errBox.classList.add('hidden');
+  if (!code) return;
+  try {
+    const result = await callApi('GET', 'login', { code });
+    if (!result.valid) {
+      errBox.textContent = 'קוד לא תקין';
+      errBox.classList.remove('hidden');
+      return;
+    }
+    if (!result.isAdmin) {
+      errBox.textContent = 'הקוד הזה אינו קוד מנהל';
+      errBox.classList.remove('hidden');
+      return;
+    }
+    enterApp(result.code || code, result.name, true);
+    $('admin-login-modal').classList.add('hidden');
+    showScreen('screen-admin');
+    loadAdminUsers();
+  } catch (err) {
+    errBox.textContent = err.message || 'שגיאה בהתחברות';
+    errBox.classList.remove('hidden');
+  }
+});
 document.querySelectorAll('[data-back-to]').forEach(btn => {
   btn.addEventListener('click', () => showScreen(btn.dataset.backTo));
 });
@@ -337,19 +373,20 @@ function renderAdminUserCard(u) {
     <div style="flex:1;min-width:200px">
       <div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:15px">
         <span style="width:9px;height:9px;border-radius:50%;background:${dotColor};display:inline-block"></span>
-        ${escapeHtml(u.name || '')} ${u.isAdmin ? '👑' : ''}
+        ${escapeHtml(u.name || '')} ${u.isAdmin ? '👑' : ''} ${u.messagingBlocked ? '🚫' : ''}
       </div>
       <div style="font-size:12.5px;color:var(--text-muted);margin-top:3px">
         קוד: ${escapeHtml(u.code)} · ${rel.label} · ${hoursLabel} שעות החודש
       </div>
       <div style="font-size:12.5px;margin-top:2px;color:${isActive ? 'var(--success)' : 'var(--danger)'}">
-        ${isActive ? 'פעיל' : 'לא פעיל'}
+        ${isActive ? 'פעיל' : 'לא פעיל'} ${u.messagingBlocked ? '· חסום משליחת הודעות' : ''}
       </div>
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
       ${u.isAdmin ? '' : `<button class="tool-btn admin-toggle-btn" data-code="${escapeHtml(u.code)}" data-status="${isActive ? 'פעיל' : 'לא פעיל'}" style="width:auto;padding:6px 12px">${isActive ? 'השבת' : 'הפעל'}</button>`}
       <button class="tool-btn admin-resend-btn" data-code="${escapeHtml(u.code)}" style="width:auto;padding:6px 12px">שלח קוד</button>
       <button class="tool-btn admin-message-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">שלח הודעה</button>
+      ${u.isAdmin ? '' : `<button class="tool-btn admin-block-msg-btn" data-code="${escapeHtml(u.code)}" data-blocked="${u.messagingBlocked ? '1' : '0'}" style="width:auto;padding:6px 12px${u.messagingBlocked ? ';color:var(--danger)' : ''}">${u.messagingBlocked ? 'בטל חסימת הודעות' : 'חסום הודעות'}</button>`}
     </div>
   `;
   return card;
@@ -359,6 +396,20 @@ $('admin-users-list').addEventListener('click', async (e) => {
   const toggleBtn = e.target.closest('.admin-toggle-btn');
   const resendBtn = e.target.closest('.admin-resend-btn');
   const msgBtn = e.target.closest('.admin-message-btn');
+  const blockMsgBtn = e.target.closest('.admin-block-msg-btn');
+
+  if (blockMsgBtn) {
+    const code = blockMsgBtn.dataset.code;
+    const newBlocked = blockMsgBtn.dataset.blocked !== '1';
+    try {
+      const res = await callApi('POST', 'adminSetMessagingBlocked', { adminCode: state.code, targetCode: code, blocked: newBlocked });
+      showToast(res.message || 'הסטטוס עודכן');
+      loadAdminUsers();
+    } catch (err) {
+      showToast(err.message || 'שגיאה בעדכון חסימת הודעות');
+    }
+    return;
+  }
 
   if (toggleBtn) {
     const code = toggleBtn.dataset.code;
@@ -425,6 +476,35 @@ $('admin-message-send-btn').addEventListener('click', async () => {
     });
     showToast(res.message || 'ההודעה נשלחה');
     $('admin-message-modal').classList.add('hidden');
+  } catch (err) {
+    errBox.textContent = err.message || 'שגיאה בשליחת ההודעה';
+    errBox.classList.remove('hidden');
+  }
+});
+
+// ---------------------------------------------------------------------
+// שליחת הודעה למנהל - כבאי רגיל (לא מנהל)
+// ---------------------------------------------------------------------
+$('send-admin-message-btn').addEventListener('click', () => {
+  $('user-message-text').value = '';
+  $('user-message-error').classList.add('hidden');
+  $('user-message-modal').classList.remove('hidden');
+});
+$('close-user-message-modal').addEventListener('click', () => {
+  $('user-message-modal').classList.add('hidden');
+});
+$('user-message-send-btn').addEventListener('click', async () => {
+  const text = $('user-message-text').value.trim();
+  const errBox = $('user-message-error');
+  if (!text) {
+    errBox.textContent = 'יש להזין תוכן להודעה';
+    errBox.classList.remove('hidden');
+    return;
+  }
+  try {
+    const res = await callApi('POST', 'sendUserMessage', { code: state.code, messageText: text });
+    showToast(res.message || 'ההודעה נשלחה');
+    $('user-message-modal').classList.add('hidden');
   } catch (err) {
     errBox.textContent = err.message || 'שגיאה בשליחת ההודעה';
     errBox.classList.remove('hidden');
