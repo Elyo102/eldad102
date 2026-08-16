@@ -146,6 +146,7 @@
         <button id="help-btn-app" class="icon-btn" title="עזרה">?</button>
         <button id="enable-push-btn" class="icon-btn" title="קבלת התראות">🔔</button>
         <button id="send-admin-message-btn" class="icon-btn" title="שלח הודעה למנהל">✉</button>
+        <button id="team-btn" class="icon-btn hidden" title="צוות ניהול">👥</button>
         <button id="admin-btn" class="icon-btn hidden" title="ניהול מערכת">⚙</button>
         <button id="logout-btn" class="icon-btn" title="יציאה">יציאה</button>
       </div>
@@ -205,10 +206,61 @@
 
   <main class="app-main">
     <button id="admin-broadcast-btn" class="btn btn-primary" style="margin-bottom:16px">שלח הודעה לכולם</button>
+    <button id="admin-add-manager-btn" class="btn btn-install" style="margin-bottom:16px">הוסף מנהל/ת צוות חדש/ה</button>
     <div id="admin-users-list"></div>
     <div id="admin-empty" class="empty-state hidden">לא נמצאו משתמשים</div>
   </main>
 </section>
+
+<!-- ===================== מסך צוות ניהול (מנהלי צוות + מנהל-על) ===================== -->
+<section id="screen-team" class="screen hidden">
+  <header class="app-header">
+    <div class="header-top">
+      <div class="user-info"><span>צוות ניהול</span></div>
+      <div class="header-actions">
+        <button id="team-back-btn" class="icon-btn" title="חזרה">חזרה</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div id="team-list"></div>
+    <div id="team-empty" class="empty-state hidden">אין עוד חברי צוות ניהול רשומים</div>
+  </main>
+</section>
+
+<!-- ===================== מודאל: הוספת מנהל/ת צוות ===================== -->
+<div id="add-manager-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>הוספת מנהל/ת צוות</h2>
+      <button class="icon-btn" id="close-add-manager-modal">✕</button>
+    </div>
+    <input type="text" id="new-manager-first" class="text-input" placeholder="שם פרטי">
+    <input type="text" id="new-manager-last" class="text-input" placeholder="שם משפחה">
+    <input type="email" id="new-manager-email" class="text-input" placeholder="אימייל">
+    <div id="add-manager-error" class="error-msg hidden"></div>
+    <div id="add-manager-result" class="result-msg hidden"></div>
+    <div class="modal-actions">
+      <button id="add-manager-submit-btn" class="btn btn-primary">צור חשבון</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== מודאל: שליחת הודעה (צוות ניהול) ===================== -->
+<div id="team-message-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="team-message-modal-title">שליחת הודעה</h2>
+      <button class="icon-btn" id="close-team-message-modal">✕</button>
+    </div>
+    <textarea id="team-message-text" class="text-input" rows="4" placeholder="תוכן ההודעה"></textarea>
+    <div id="team-message-error" class="error-msg hidden"></div>
+    <div class="modal-actions">
+      <button id="team-message-send-btn" class="btn btn-primary">שלח</button>
+    </div>
+  </div>
+</div>
 
 <!-- ===================== מודאל: שליחת הודעה (מנהל) ===================== -->
 <div id="admin-message-modal" class="modal hidden">
