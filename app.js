@@ -777,11 +777,89 @@ updateOnlineStatus();
 // ---------------------------------------------------------------------
 // Service Worker
 // ---------------------------------------------------------------------
+let swRegistration = null;
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('service-worker.js').catch(() => {});
+    navigator.serviceWorker.register('service-worker.js')
+      .then(reg => { swRegistration = reg; })
+      .catch(() => {});
   });
 }
+
+// ---------------------------------------------------------------------
+// Push Notifications (Firebase Cloud Messaging)
+// ---------------------------------------------------------------------
+// firebaseConfig הוא ציבורי בכוונה - מזהה לאיזה פרויקט הדפדפן מתחבר,
+// לא מקנה שום גישה לשרת (בניגוד למפתח הפרטי שנשאר רק ב-Script Properties
+// של ה-Apps Script). מוגדר גם ב-service-worker.js לצורך הודעות ברקע.
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAAknVzs43Ruk9tuEV-dziswUNK16xFdWY",
+  authDomain: "fire102report.firebaseapp.com",
+  projectId: "fire102report",
+  storageBucket: "fire102report.firebasestorage.app",
+  messagingSenderId: "306754079111",
+  appId: "1:306754079111:web:7aae9e1823df2da640ab22"
+};
+const FCM_VAPID_KEY = "BCMPwpgtlMtk0vzcrRwROJIVGlsyCxIS4iAUmdW8up3B4-fmvvmUqp9cRxh9GUQsIeg92eWbFA9uWteQztNdni4";
+
+let firebaseMessaging = null;
+function getFirebaseMessaging() {
+  if (!firebaseMessaging && window.firebase) {
+    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    firebaseMessaging = firebase.messaging();
+  }
+  return firebaseMessaging;
+}
+
+async function enablePushNotifications() {
+  if (!('Notification' in window)) {
+    showToast('הדפדפן הזה לא תומך בהתראות');
+    return;
+  }
+  if (!swRegistration) {
+    showToast('עוד רגע - האפליקציה עדיין נטענת, נסה שוב בעוד כמה שניות');
+    return;
+  }
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      showToast('לא אושרה הרשאה להתראות');
+      return;
+    }
+    const messaging = getFirebaseMessaging();
+    if (!messaging) {
+      showToast('שגיאה בטעינת שירות ההתראות');
+      return;
+    }
+    const token = await messaging.getToken({
+      vapidKey: FCM_VAPID_KEY,
+      serviceWorkerRegistration: swRegistration
+    });
+    if (!token) {
+      showToast('לא הצלחתי לקבל טוקן התראות');
+      return;
+    }
+    await callApi('POST', 'registerPushToken', { code: state.code, deviceToken: token });
+    showToast('התראות הופעלו בהצלחה!');
+  } catch (err) {
+    showToast('שגיאה בהפעלת התראות: ' + (err.message || ''));
+  }
+}
+
+$('enable-push-btn').addEventListener('click', enablePushNotifications);
+
+// כשההודעה מגיעה בזמן שהאפליקציה פתוחה וברקע (לא סגורה) - מציגים Toast
+// במקום להסתמך רק על התראת המערכת (שגם תופיע, דרך ה-Service Worker)
+document.addEventListener('DOMContentLoaded', () => {
+  const messaging = getFirebaseMessaging();
+  if (messaging && messaging.onMessage) {
+    messaging.onMessage(payload => {
+      const title = payload.notification && payload.notification.title;
+      const body = payload.notification && payload.notification.body;
+      showToast((title ? title + ': ' : '') + (body || ''));
+    });
+  }
+});
 
 // ---------------------------------------------------------------------
 // המראה
