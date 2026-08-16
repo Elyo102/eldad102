@@ -24,9 +24,10 @@ const DAY_TYPE_COLORS = {
   'יטבתה': 'var(--c-yotvata)',
   'החלפה צרכי מערכת': 'var(--c-swap)',
   'המשך משמרת': 'var(--c-continued)',
-  'משמרת מפוצלת': 'var(--c-split)'
+  'משמרת מפוצלת': 'var(--c-split)',
+  'קריאת פתע': '#c62828'
 };
-const DAY_TYPE_ORDER = ['רגיל', 'חופש', 'מחלה', 'מילואים', 'יטבתה', 'החלפה צרכי מערכת', 'המשך משמרת', 'משמרת מפוצלת'];
+const DAY_TYPE_ORDER = ['רגיל', 'חופש', 'מחלה', 'מילואים', 'יטבתה', 'החלפה צרכי מערכת', 'המשך משמרת', 'משמרת מפוצלת', 'קריאת פתע'];
 
 // שעת כניסה נעולה (לא ניתנת לעריכה) עבור סוגי יום ספציפיים - כרגע רק
 // "המשך משמרת" נעול על 07:00, בדיוק כמו שהשרת בכל מקרה כופה בפועל.
@@ -53,7 +54,7 @@ const state = {
 const $ = (id) => document.getElementById(id);
 
 function showScreen(id) {
-  ['screen-login', 'screen-register', 'screen-forgot', 'screen-app', 'screen-admin', 'screen-team'].forEach(s => {
+  ['screen-login', 'screen-register', 'screen-forgot', 'screen-app', 'screen-admin', 'screen-team', 'screen-documents', 'screen-procedures'].forEach(s => {
     $(s).classList.toggle('hidden', s !== id);
   });
 }
@@ -392,6 +393,8 @@ function renderAdminUserCard(u) {
       <button class="tool-btn admin-message-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">שלח הודעה</button>
       ${u.isAdmin ? '' : `<button class="tool-btn admin-block-msg-btn" data-code="${escapeHtml(u.code)}" data-blocked="${u.messagingBlocked ? '1' : '0'}" style="width:auto;padding:6px 12px${u.messagingBlocked ? ';color:var(--danger)' : ''}">${u.messagingBlocked ? 'בטל חסימת הודעות' : 'חסום הודעות'}</button>`}
       ${u.isAdmin ? '' : `<button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-manager="${u.isManager ? '1' : '0'}" style="width:auto;padding:6px 12px">${u.isManager ? 'הסר ניהול צוות' : 'הפוך למנהל/ת צוות'}</button>`}
+      <button class="tool-btn admin-docs-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">מסמכים</button>
+      <button class="tool-btn admin-reminder-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">תזכורת</button>
     </div>
   `;
   return card;
@@ -403,6 +406,18 @@ $('admin-users-list').addEventListener('click', async (e) => {
   const msgBtn = e.target.closest('.admin-message-btn');
   const blockMsgBtn = e.target.closest('.admin-block-msg-btn');
   const roleBtn = e.target.closest('.admin-role-btn');
+  const docsBtn = e.target.closest('.admin-docs-btn');
+  const reminderBtn = e.target.closest('.admin-reminder-btn');
+
+  if (docsBtn) {
+    openUserDocsModal(docsBtn.dataset.code, docsBtn.dataset.name);
+    return;
+  }
+
+  if (reminderBtn) {
+    openReminderModal(reminderBtn.dataset.code, reminderBtn.dataset.name);
+    return;
+  }
 
   if (roleBtn) {
     const code = roleBtn.dataset.code;
@@ -751,6 +766,24 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+// ממיר File שנבחר ב-input[type=file] ל-base64 טהור (בלי ה-"data:...;base64," בהתחלה)
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function formatDocDate(iso) {
+  try {
+    return new Date(iso).toLocaleDateString('he-IL');
+  } catch (e) {
+    return '';
+  }
+}
+
 $('prev-month').addEventListener('click', () => {
   state.currentMonth = new Date(state.currentMonth.getFullYear(), state.currentMonth.getMonth() - 1, 1);
   refreshMonth();
@@ -784,10 +817,35 @@ $('export-sheet-btn').addEventListener('click', async () => {
 // ---------------------------------------------------------------------
 // מודאל הוספה/עריכה של משמרת
 // ---------------------------------------------------------------------
+// סוגי יום שדורשים נימוק בכתב חובה כדי לשמור - זהה בדיוק לרשימה בשרת
+// (REQUIRE_JUSTIFICATION_TYPES ב-Code.gs), חייבים להישאר מסונכרנים.
+const REQUIRE_JUSTIFICATION_TYPES = new Set(['החלפה צרכי מערכת', 'קריאת פתע']);
+let justifyBubbleInterval = null;
+
+function updateJustifyBubble(type) {
+  const bubble = $('justify-bubble');
+  clearInterval(justifyBubbleInterval);
+  if (!REQUIRE_JUSTIFICATION_TYPES.has(type)) {
+    bubble.classList.add('hidden');
+    return;
+  }
+  bubble.classList.remove('hidden');
+  bubble.classList.remove('popping');
+  // לולאת "בועה נעה עד שמתפוצצת ונעלמת, ואז מופיעה שוב" - תזכורת חוזרת
+  // כל עוד הסוג נבחר, כדי שהתזכורת לא "תישכח" תוך כדי מילוי הטופס
+  justifyBubbleInterval = setInterval(() => {
+    bubble.classList.add('popping');
+    setTimeout(() => {
+      bubble.classList.remove('popping');
+    }, 500);
+  }, 3200);
+}
+
 function toggleTimeFields() {
   const type = $('shift-daytype').value;
   $('time-fields').classList.toggle('hidden', FIXED_HOUR_TYPES.has(type));
   $('split-fields').classList.toggle('hidden', type !== 'משמרת מפוצלת');
+  updateJustifyBubble(type);
 
   const startInput = $('shift-start');
   const lockedStart = LOCKED_START_TIME[type];
@@ -877,6 +935,15 @@ $('shift-form').addEventListener('submit', async (e) => {
   if (dayType === 'משמרת מפוצלת' && (!entry2 || !exit2)) {
     errBox.textContent = 'יש להזין גם את שעות מקטע 2 (אחרי ההפסקה)';
     errBox.classList.remove('hidden');
+    return;
+  }
+  if (REQUIRE_JUSTIFICATION_TYPES.has(dayType) && !notes) {
+    errBox.textContent = 'חובה לציין נימוק בכתב בשדה ההערות כדי לשמור "' + dayType + '"';
+    errBox.classList.remove('hidden');
+    // מפעילים את אפקט ההתפוצצות מיד, כדי שהתזכורת תהיה בולטת ברגע הזה
+    const bubble = $('justify-bubble');
+    bubble.classList.add('popping');
+    setTimeout(() => bubble.classList.remove('popping'), 500);
     return;
   }
 
@@ -1067,6 +1134,294 @@ document.addEventListener('DOMContentLoaded', () => {
       const body = payload.notification && payload.notification.body;
       showToast((title ? title + ': ' : '') + (body || ''));
     });
+  }
+});
+
+// ---------------------------------------------------------------------
+// המסמכים שלי (כבאי) - צפייה + העלאה
+// ---------------------------------------------------------------------
+async function loadMyDocuments() {
+  try {
+    const result = await callApi('GET', 'listUserDocuments', { code: state.code });
+    renderDocList($('docs-to-me-list'), $('docs-to-me-empty'), result.toMe || [], true);
+    renderDocList($('docs-from-me-list'), $('docs-from-me-empty'), result.fromMe || [], false);
+  } catch (err) {
+    showToast(err.message || 'שגיאה בטעינת המסמכים');
+  }
+}
+
+function renderDocList(listEl, emptyEl, docs, allowSign) {
+  listEl.innerHTML = '';
+  if (docs.length === 0) {
+    emptyEl.classList.remove('hidden');
+    return;
+  }
+  emptyEl.classList.add('hidden');
+  docs.forEach(d => {
+    const card = document.createElement('div');
+    card.className = 'shift-card';
+    card.innerHTML = `
+      <div class="shift-details">
+        <div class="shift-type">${escapeHtml(d.name)}</div>
+        <div class="shift-time">${formatDocDate(d.date)}</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="tool-btn doc-open-btn" data-url="${escapeHtml(d.url)}" style="width:auto;padding:8px 12px">פתח</button>
+        ${allowSign ? `<button class="tool-btn doc-sign-btn" data-name="${escapeHtml(d.name)}" style="width:auto;padding:8px 12px">חתום</button>` : ''}
+      </div>
+    `;
+    listEl.appendChild(card);
+  });
+}
+
+document.addEventListener('click', (e) => {
+  const openBtn = e.target.closest('.doc-open-btn');
+  if (openBtn) window.open(openBtn.dataset.url, '_blank');
+  const signBtn = e.target.closest('.doc-sign-btn');
+  if (signBtn) openSignatureModal(signBtn.dataset.name);
+});
+
+$('documents-btn').addEventListener('click', () => {
+  showScreen('screen-documents');
+  loadMyDocuments();
+});
+$('documents-back-btn').addEventListener('click', () => showScreen('screen-app'));
+
+$('upload-doc-btn').addEventListener('click', () => {
+  $('doc-file-input').value = '';
+  $('upload-doc-error').classList.add('hidden');
+  $('upload-doc-modal').classList.remove('hidden');
+});
+$('close-upload-doc-modal').addEventListener('click', () => $('upload-doc-modal').classList.add('hidden'));
+$('upload-doc-submit-btn').addEventListener('click', async () => {
+  const file = $('doc-file-input').files[0];
+  const docType = $('doc-type-select').value;
+  const errBox = $('upload-doc-error');
+  if (!file) {
+    errBox.textContent = 'יש לבחור קובץ';
+    errBox.classList.remove('hidden');
+    return;
+  }
+  try {
+    const fileBase64 = await fileToBase64(file);
+    const res = await callApi('POST', 'uploadUserDocument', {
+      code: state.code, docType, fileBase64, fileName: file.name, mimeType: file.type
+    });
+    showToast(res.message || 'המסמך הועלה');
+    $('upload-doc-modal').classList.add('hidden');
+    loadMyDocuments();
+  } catch (err) {
+    errBox.textContent = err.message || 'שגיאה בהעלאת המסמך';
+    errBox.classList.remove('hidden');
+  }
+});
+
+// ---------------------------------------------------------------------
+// נהלים (כבאי)
+// ---------------------------------------------------------------------
+async function loadProcedures() {
+  try {
+    const result = await callApi('GET', 'listProcedures', { code: state.code });
+    const list = $('procedures-list');
+    const empty = $('procedures-empty');
+    list.innerHTML = '';
+    const files = result.files || [];
+    if (files.length === 0) {
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+    files.forEach(f => {
+      const card = document.createElement('div');
+      card.className = 'shift-card';
+      card.style.cursor = 'pointer';
+      card.innerHTML = `<div class="shift-details"><div class="shift-type">${escapeHtml(f.name)}</div></div>`;
+      card.addEventListener('click', () => window.open(f.url, '_blank'));
+      list.appendChild(card);
+    });
+  } catch (err) {
+    showToast(err.message || 'שגיאה בטעינת הנהלים');
+  }
+}
+$('procedures-btn').addEventListener('click', () => {
+  showScreen('screen-procedures');
+  loadProcedures();
+});
+$('procedures-back-btn').addEventListener('click', () => showScreen('screen-app'));
+
+// ---------------------------------------------------------------------
+// חתימה דיגיטלית
+// ---------------------------------------------------------------------
+let signatureCtx = null;
+let signatureDrawing = false;
+let signatureDocName = '';
+
+function setupSignatureCanvas() {
+  const canvas = $('signature-canvas');
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width;
+  canvas.height = rect.height;
+  signatureCtx = canvas.getContext('2d');
+  signatureCtx.lineWidth = 2.5;
+  signatureCtx.lineCap = 'round';
+  signatureCtx.strokeStyle = '#232323';
+
+  const getPos = (e) => {
+    const r = canvas.getBoundingClientRect();
+    const point = e.touches ? e.touches[0] : e;
+    return { x: point.clientX - r.left, y: point.clientY - r.top };
+  };
+  const start = (e) => {
+    signatureDrawing = true;
+    const p = getPos(e);
+    signatureCtx.beginPath();
+    signatureCtx.moveTo(p.x, p.y);
+    e.preventDefault();
+  };
+  const move = (e) => {
+    if (!signatureDrawing) return;
+    const p = getPos(e);
+    signatureCtx.lineTo(p.x, p.y);
+    signatureCtx.stroke();
+    e.preventDefault();
+  };
+  const end = () => { signatureDrawing = false; };
+
+  canvas.addEventListener('mousedown', start);
+  canvas.addEventListener('mousemove', move);
+  canvas.addEventListener('mouseup', end);
+  canvas.addEventListener('mouseleave', end);
+  canvas.addEventListener('touchstart', start, { passive: false });
+  canvas.addEventListener('touchmove', move, { passive: false });
+  canvas.addEventListener('touchend', end);
+}
+
+function openSignatureModal(docName) {
+  signatureDocName = docName || '';
+  $('signature-modal-title').textContent = 'חתימה על: ' + (docName || 'מסמך');
+  $('signature-modal').classList.remove('hidden');
+  setTimeout(setupSignatureCanvas, 50); // אחרי שהמודל נראה, כדי שהמידות יהיו נכונות
+}
+$('close-signature-modal').addEventListener('click', () => $('signature-modal').classList.add('hidden'));
+$('signature-clear-btn').addEventListener('click', () => {
+  if (signatureCtx) signatureCtx.clearRect(0, 0, $('signature-canvas').width, $('signature-canvas').height);
+});
+$('signature-save-btn').addEventListener('click', async () => {
+  const canvas = $('signature-canvas');
+  const dataUrl = canvas.toDataURL('image/png');
+  const base64 = dataUrl.split(',')[1];
+  try {
+    const res = await callApi('POST', 'submitDocumentSignature', {
+      code: state.code, fileName: signatureDocName, signatureBase64: base64
+    });
+    showToast(res.message || 'החתימה נשמרה');
+    $('signature-modal').classList.add('hidden');
+  } catch (err) {
+    showToast(err.message || 'שגיאה בשמירת החתימה');
+  }
+});
+
+// ---------------------------------------------------------------------
+// מנהל/ת צוות - מסמכי משתמש, שליחת קובץ, תזכורות, נהלים
+// ---------------------------------------------------------------------
+let userDocsTargetCode = null;
+
+async function openUserDocsModal(code, name) {
+  userDocsTargetCode = code;
+  $('user-docs-modal-title').textContent = 'מסמכים - ' + name;
+  $('user-docs-modal').classList.remove('hidden');
+  try {
+    const result = await callApi('GET', 'adminListUserDocuments', { adminCode: state.code, targetCode: code });
+    renderDocList($('user-docs-from-employee'), $('user-docs-from-employee'), result.fromEmployee || [], false);
+    renderDocList($('user-docs-from-manager'), $('user-docs-from-manager'), result.fromManager || [], false);
+  } catch (err) {
+    showToast(err.message || 'שגיאה בטעינת מסמכים');
+  }
+}
+$('close-user-docs-modal').addEventListener('click', () => $('user-docs-modal').classList.add('hidden'));
+$('user-docs-send-btn').addEventListener('click', () => {
+  $('send-doc-file-input').value = '';
+  $('send-doc-error').classList.add('hidden');
+  $('send-doc-modal').classList.remove('hidden');
+});
+$('close-send-doc-modal').addEventListener('click', () => $('send-doc-modal').classList.add('hidden'));
+$('send-doc-submit-btn').addEventListener('click', async () => {
+  const file = $('send-doc-file-input').files[0];
+  const errBox = $('send-doc-error');
+  if (!file) {
+    errBox.textContent = 'יש לבחור קובץ';
+    errBox.classList.remove('hidden');
+    return;
+  }
+  try {
+    const fileBase64 = await fileToBase64(file);
+    const res = await callApi('POST', 'adminUploadDocumentToUser', {
+      adminCode: state.code, targetCode: userDocsTargetCode, fileBase64, fileName: file.name, mimeType: file.type
+    });
+    showToast(res.message || 'הקובץ נשלח');
+    $('send-doc-modal').classList.add('hidden');
+    openUserDocsModal(userDocsTargetCode, $('user-docs-modal-title').textContent.replace('מסמכים - ', ''));
+  } catch (err) {
+    errBox.textContent = err.message || 'שגיאה בשליחת הקובץ';
+    errBox.classList.remove('hidden');
+  }
+});
+
+$('admin-upload-procedure-btn').addEventListener('click', () => {
+  $('procedure-file-input').value = '';
+  $('upload-procedure-error').classList.add('hidden');
+  $('upload-procedure-modal').classList.remove('hidden');
+});
+$('close-upload-procedure-modal').addEventListener('click', () => $('upload-procedure-modal').classList.add('hidden'));
+$('upload-procedure-submit-btn').addEventListener('click', async () => {
+  const file = $('procedure-file-input').files[0];
+  const errBox = $('upload-procedure-error');
+  if (!file) {
+    errBox.textContent = 'יש לבחור קובץ';
+    errBox.classList.remove('hidden');
+    return;
+  }
+  try {
+    const fileBase64 = await fileToBase64(file);
+    const res = await callApi('POST', 'adminUploadProcedure', {
+      adminCode: state.code, fileBase64, fileName: file.name, mimeType: file.type
+    });
+    showToast(res.message || 'הנוהל הועלה');
+    $('upload-procedure-modal').classList.add('hidden');
+  } catch (err) {
+    errBox.textContent = err.message || 'שגיאה בהעלאת הנוהל';
+    errBox.classList.remove('hidden');
+  }
+});
+
+let reminderTargetCode = null;
+function openReminderModal(code, name) {
+  reminderTargetCode = code;
+  $('reminder-modal-title').textContent = 'תזכורת ל-' + name;
+  $('reminder-datetime').value = '';
+  $('reminder-text').value = '';
+  $('reminder-error').classList.add('hidden');
+  $('reminder-modal').classList.remove('hidden');
+}
+$('close-reminder-modal').addEventListener('click', () => $('reminder-modal').classList.add('hidden'));
+$('reminder-submit-btn').addEventListener('click', async () => {
+  const dt = $('reminder-datetime').value;
+  const text = $('reminder-text').value.trim();
+  const errBox = $('reminder-error');
+  if (!dt || !text) {
+    errBox.textContent = 'יש למלא תאריך/שעה ותוכן';
+    errBox.classList.remove('hidden');
+    return;
+  }
+  try {
+    const res = await callApi('POST', 'adminCreateReminder', {
+      adminCode: state.code, targetCode: reminderTargetCode, dateTimeISO: new Date(dt).toISOString(), message: text
+    });
+    showToast(res.message || 'התזכורת נקבעה');
+    $('reminder-modal').classList.add('hidden');
+  } catch (err) {
+    errBox.textContent = err.message || 'שגיאה בקביעת התזכורת';
+    errBox.classList.remove('hidden');
   }
 });
 
