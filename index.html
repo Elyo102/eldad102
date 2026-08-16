@@ -146,6 +146,8 @@
         <button id="help-btn-app" class="icon-btn" title="עזרה">?</button>
         <button id="enable-push-btn" class="icon-btn" title="קבלת התראות">🔔</button>
         <button id="send-admin-message-btn" class="icon-btn" title="שלח הודעה למנהל">✉</button>
+        <button id="documents-btn" class="icon-btn" title="המסמכים שלי">📁</button>
+        <button id="procedures-btn" class="icon-btn" title="נהלים">📋</button>
         <button id="team-btn" class="icon-btn hidden" title="צוות ניהול">👥</button>
         <button id="admin-btn" class="icon-btn hidden" title="ניהול מערכת">⚙</button>
         <button id="logout-btn" class="icon-btn" title="יציאה">יציאה</button>
@@ -207,10 +209,74 @@
   <main class="app-main">
     <button id="admin-broadcast-btn" class="btn btn-primary" style="margin-bottom:16px">שלח הודעה לכולם</button>
     <button id="admin-add-manager-btn" class="btn btn-install" style="margin-bottom:16px">הוסף מנהל/ת צוות חדש/ה</button>
+    <button id="admin-upload-procedure-btn" class="btn btn-install" style="margin-bottom:16px">העלאת נוהל חדש</button>
     <div id="admin-users-list"></div>
     <div id="admin-empty" class="empty-state hidden">לא נמצאו משתמשים</div>
   </main>
 </section>
+
+<!-- ===================== מודאל: מסמכי משתמש (מנהל/ת צוות) ===================== -->
+<div id="user-docs-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="user-docs-modal-title">מסמכים</h2>
+      <button class="icon-btn" id="close-user-docs-modal">✕</button>
+    </div>
+    <button id="user-docs-send-btn" class="btn btn-primary" style="margin-bottom:14px">שליחת קובץ למשתמש</button>
+    <div class="stats-card-title" style="margin-bottom:6px">מסמכים שהעובד/ת שלח/ה</div>
+    <div id="user-docs-from-employee"></div>
+    <div class="stats-card-title" style="margin:14px 0 6px">מסמכים שנשלחו אליו/ה</div>
+    <div id="user-docs-from-manager"></div>
+  </div>
+</div>
+
+<!-- ===================== מודאל: שליחת קובץ למשתמש (מנהל/ת צוות) ===================== -->
+<div id="send-doc-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>שליחת קובץ</h2>
+      <button class="icon-btn" id="close-send-doc-modal">✕</button>
+    </div>
+    <input type="file" id="send-doc-file-input" class="text-input" accept="image/*,.pdf">
+    <div id="send-doc-error" class="error-msg hidden"></div>
+    <div class="modal-actions">
+      <button id="send-doc-submit-btn" class="btn btn-primary">שלח</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== מודאל: העלאת נוהל (מנהל/ת צוות) ===================== -->
+<div id="upload-procedure-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>העלאת נוהל</h2>
+      <button class="icon-btn" id="close-upload-procedure-modal">✕</button>
+    </div>
+    <input type="file" id="procedure-file-input" class="text-input" accept="image/*,.pdf">
+    <div id="upload-procedure-error" class="error-msg hidden"></div>
+    <div class="modal-actions">
+      <button id="upload-procedure-submit-btn" class="btn btn-primary">העלה נוהל</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== מודאל: תזכורת מתוזמנת (מנהל/ת צוות) ===================== -->
+<div id="reminder-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="reminder-modal-title">תזכורת</h2>
+      <button class="icon-btn" id="close-reminder-modal">✕</button>
+    </div>
+    <label class="field-label">תאריך ושעה</label>
+    <input type="datetime-local" id="reminder-datetime" class="text-input">
+    <label class="field-label">תוכן התזכורת</label>
+    <textarea id="reminder-text" class="text-input" rows="3" placeholder="לדוגמה: לשלוח אישור מילואים"></textarea>
+    <div id="reminder-error" class="error-msg hidden"></div>
+    <div class="modal-actions">
+      <button id="reminder-submit-btn" class="btn btn-primary">קבע תזכורת</button>
+    </div>
+  </div>
+</div>
 
 <!-- ===================== מסך צוות ניהול (מנהלי צוות + מנהל-על) ===================== -->
 <section id="screen-team" class="screen hidden">
@@ -228,6 +294,86 @@
     <div id="team-empty" class="empty-state hidden">אין עוד חברי צוות ניהול רשומים</div>
   </main>
 </section>
+
+<!-- ===================== מסך המסמכים שלי (כבאי) ===================== -->
+<section id="screen-documents" class="screen hidden">
+  <header class="app-header">
+    <div class="header-top">
+      <div class="user-info"><span>המסמכים שלי</span></div>
+      <div class="header-actions">
+        <button id="documents-back-btn" class="icon-btn" title="חזרה">חזרה</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <button id="upload-doc-btn" class="btn btn-primary" style="margin-bottom:16px">העלאת מסמך חדש</button>
+
+    <div class="stats-card-title" style="margin-bottom:8px">מסמכים שקיבלתי</div>
+    <div id="docs-to-me-list" style="margin-bottom:20px"></div>
+    <div id="docs-to-me-empty" class="empty-state hidden">אין מסמכים שהתקבלו עדיין</div>
+
+    <div class="stats-card-title" style="margin-bottom:8px">מסמכים ששלחתי</div>
+    <div id="docs-from-me-list"></div>
+    <div id="docs-from-me-empty" class="empty-state hidden">אין מסמכים שנשלחו עדיין</div>
+  </main>
+</section>
+
+<!-- ===================== מסך נהלים (כבאי) ===================== -->
+<section id="screen-procedures" class="screen hidden">
+  <header class="app-header">
+    <div class="header-top">
+      <div class="user-info"><span>נהלים</span></div>
+      <div class="header-actions">
+        <button id="procedures-back-btn" class="icon-btn" title="חזרה">חזרה</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div id="procedures-list"></div>
+    <div id="procedures-empty" class="empty-state hidden">אין נהלים להצגה כרגע</div>
+  </main>
+</section>
+
+<!-- ===================== מודאל: העלאת מסמך (כבאי) ===================== -->
+<div id="upload-doc-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>העלאת מסמך</h2>
+      <button class="icon-btn" id="close-upload-doc-modal">✕</button>
+    </div>
+    <label class="field-label">סוג המסמך</label>
+    <select id="doc-type-select" class="text-input">
+      <option value="אישור מחלה">אישור מחלה</option>
+      <option value="אישור מילואים">אישור מילואים</option>
+      <option value="דוח נוכחות">דוח נוכחות</option>
+      <option value="אחר">אחר</option>
+    </select>
+    <label class="field-label">קובץ</label>
+    <input type="file" id="doc-file-input" class="text-input" accept="image/*,.pdf">
+    <div id="upload-doc-error" class="error-msg hidden"></div>
+    <div class="modal-actions">
+      <button id="upload-doc-submit-btn" class="btn btn-primary">העלה</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== מודאל: חתימה דיגיטלית ===================== -->
+<div id="signature-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="signature-modal-title">חתימה על מסמך</h2>
+      <button class="icon-btn" id="close-signature-modal">✕</button>
+    </div>
+    <p class="subtitle">חתום/י באצבע או בעכבר בתוך המסגרת</p>
+    <canvas id="signature-canvas" style="width:100%;height:180px;border:1.5px dashed var(--border);border-radius:10px;touch-action:none;background:#fff"></canvas>
+    <div class="modal-actions">
+      <button type="button" id="signature-clear-btn" class="btn btn-danger">נקה</button>
+      <button id="signature-save-btn" class="btn btn-primary">שמור חתימה</button>
+    </div>
+  </div>
+</div>
 
 <!-- ===================== מודאל: הוספת מנהל/ת צוות ===================== -->
 <div id="add-manager-modal" class="modal hidden">
@@ -314,7 +460,10 @@
         <option value="החלפה צרכי מערכת">החלפה צרכי מערכת</option>
         <option value="המשך משמרת">המשך משמרת (24+ שעות)</option>
         <option value="משמרת מפוצלת">משמרת מפוצלת</option>
+        <option value="קריאת פתע">קריאת פתע</option>
       </select>
+
+      <div id="justify-bubble" class="justify-bubble hidden">✋ חובה לנמק בכתב כדי לשמור</div>
 
       <div id="time-fields">
         <label class="field-label" id="shift-start-label">שעת כניסה</label>
