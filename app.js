@@ -32,6 +32,10 @@ const DAY_TYPE_ORDER = ['רגיל', 'חופש', 'מחלה', 'מילואים', '�
 // "המשך משמרת" נעול על 07:00, בדיוק כמו שהשרת בכל מקרה כופה בפועל.
 const LOCKED_START_TIME = { 'המשך משמרת': '07:00' };
 
+// התחנות הקבועות שקיימות בסידור העבודה של אילת - זהות לתוויות
+// השורה שבהן משתמש הסידור עצמו (ולכן גם למה שהמילוי האוטומטי כותב).
+const KNOWN_STATIONS = ['ראשית', 'שחמון', 'תמנע', 'יטבתה'];
+
 // ---------------------------------------------------------------------
 // state
 // ---------------------------------------------------------------------
@@ -444,6 +448,9 @@ function toggleTimeFields() {
   $('shift-end-label').textContent = type === 'משמרת מפוצלת' ? 'שעת יציאה - מקטע 1 (לפני ההפסקה)' : 'שעת יציאה';
 }
 $('shift-daytype').addEventListener('change', toggleTimeFields);
+$('shift-workplace').addEventListener('change', () => {
+  $('shift-workplace-other').classList.toggle('hidden', $('shift-workplace').value !== 'אחר');
+});
 
 function openShiftModal(dateStr, existing) {
   state.editingDateStr = dateStr || null;
@@ -456,7 +463,16 @@ function openShiftModal(dateStr, existing) {
   $('shift-start2').value = existing?.entry2 || '';
   $('shift-end2').value = existing?.exit2 || '';
   $('shift-break-type').value = existing?.breakType || '';
-  $('shift-workplace').value = existing?.workplace || '';
+  const existingWorkplace = existing?.workplace || '';
+  if (existingWorkplace && !KNOWN_STATIONS.includes(existingWorkplace)) {
+    $('shift-workplace').value = 'אחר';
+    $('shift-workplace-other').value = existingWorkplace;
+    $('shift-workplace-other').classList.remove('hidden');
+  } else {
+    $('shift-workplace').value = existingWorkplace;
+    $('shift-workplace-other').value = '';
+    $('shift-workplace-other').classList.add('hidden');
+  }
   $('shift-notes').value = (existing?.notes || '').replace(/\*\*\*/g, '').trim();
   $('delete-shift-btn').classList.toggle('hidden', !existing);
   toggleTimeFields();
@@ -487,7 +503,8 @@ $('shift-form').addEventListener('submit', async (e) => {
   const entry2 = $('shift-start2').value;
   const exit2 = $('shift-end2').value;
   const breakType = $('shift-break-type').value.trim();
-  const workplace = $('shift-workplace').value.trim();
+  const workplaceSelect = $('shift-workplace').value;
+  const workplace = workplaceSelect === 'אחר' ? $('shift-workplace-other').value.trim() : workplaceSelect;
   const notes = $('shift-notes').value.trim();
   const errBox = $('shift-form-error');
   errBox.classList.add('hidden');
