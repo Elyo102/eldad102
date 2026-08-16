@@ -210,12 +210,20 @@
         <label class="field-label">שעת יציאה - מקטע 2</label>
         <input type="time" id="shift-end2" class="text-input">
 
-        <label class="field-label">סוג ההפסקה</label>
-        <input type="text" id="shift-break-type" class="text-input" placeholder="לדוגמה: יציאה ללימודים">
+        <label class="field-label">הערת התייחסות</label>
+        <input type="text" id="shift-break-type" class="text-input" placeholder="לדוגמה: יציאה ללימודים בין שני המקטעים">
       </div>
 
-      <label class="field-label">מקום עבודה</label>
-      <input type="text" id="shift-workplace" class="text-input" placeholder="לדוגמה: תחנה 102">
+      <label class="field-label">תחנה</label>
+      <select id="shift-workplace" class="text-input">
+        <option value="">בחר תחנה</option>
+        <option value="ראשית">ראשית</option>
+        <option value="שחמון">שחמון</option>
+        <option value="תמנע">תמנע</option>
+        <option value="יטבתה">יטבתה</option>
+        <option value="אחר">אחר</option>
+      </select>
+      <input type="text" id="shift-workplace-other" class="text-input hidden" placeholder="שם התחנה">
 
       <label class="field-label">הערות</label>
       <textarea id="shift-notes" class="text-input" rows="2"></textarea>
