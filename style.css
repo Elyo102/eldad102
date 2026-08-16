@@ -20,6 +20,7 @@
   --c-yotvata: #d38b00;
   --c-swap: #607d8b;
   --c-continued: #00838f;
+  --c-split: #a1478f;
 }
 
 * { box-sizing: border-box; }
@@ -55,14 +56,14 @@ button {
   min-height: 100dvh;
 }
 
-#screen-login, #screen-register, #screen-forgot, #screen-admin-login {
+#screen-login, #screen-register, #screen-forgot {
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
   padding-top: calc(24px + var(--safe-top));
 }
-#screen-login.hidden, #screen-register.hidden, #screen-forgot.hidden, #screen-admin-login.hidden { display: none; }
+#screen-login.hidden, #screen-register.hidden, #screen-forgot.hidden { display: none; }
 
 .auth-card {
   width: 100%;
@@ -145,15 +146,6 @@ textarea.text-input { resize: vertical; }
   font-size: 14px;
   text-decoration: underline;
 }
-.link-btn-subtle {
-  display: block;
-  margin: 22px auto 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  text-decoration: none;
-  opacity: 0.75;
-}
-.link-btn-subtle:active { opacity: 1; }
 
 .error-msg {
   background: #fdecea;
@@ -205,7 +197,6 @@ textarea.text-input { resize: vertical; }
   transition: transform 0.15s cubic-bezier(.4,0,.2,1), background 0.15s ease;
 }
 .icon-btn:active { transform: scale(0.92); background: rgba(255,255,255,0.28); }
-.icon-btn.push-active { background: rgba(255,255,255,0.4); }
 
 .month-nav {
   display: flex;
@@ -344,87 +335,6 @@ textarea.text-input { resize: vertical; }
 .tool-btn:active { transform: scale(0.95); background: #e6e4df; }
 .tool-btn-danger { color: var(--danger); }
 
-/* ---------- מסך ניהול (Admin) ---------- */
-#screen-admin-dashboard { display: flex; flex-direction: column; }
-
-.admin-summary {
-  display: flex;
-  gap: 10px;
-  padding: 14px;
-  max-width: 900px;
-  width: 100%;
-  margin: 0 auto;
-}
-.admin-summary-item {
-  flex: 1;
-  background: var(--card-bg);
-  border-radius: 12px;
-  box-shadow: var(--shadow);
-  padding: 12px;
-  text-align: center;
-}
-.admin-summary-val { font-size: 22px; font-weight: 700; color: var(--brand-dark); }
-.admin-summary-label { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
-
-.admin-table-wrap {
-  padding: 0 14px 40px;
-  max-width: 900px;
-  width: 100%;
-  margin: 0 auto;
-  overflow-x: auto;
-}
-.admin-table {
-  width: 100%;
-  min-width: 640px;
-  border-collapse: collapse;
-  background: var(--card-bg);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: var(--shadow);
-  font-size: 13.5px;
-}
-.admin-table th, .admin-table td {
-  padding: 10px 12px;
-  text-align: right;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-.admin-table th {
-  background: #f0efec;
-  font-size: 12px;
-  color: var(--text-muted);
-  font-weight: 600;
-}
-.admin-table tbody tr:last-child td { border-bottom: none; }
-.admin-empty { text-align: center; color: var(--text-muted); padding: 24px !important; white-space: normal; }
-
-.admin-badge {
-  display: inline-block;
-  padding: 3px 9px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-}
-.admin-badge-ok { background: #eaf5ea; color: var(--success); }
-.admin-badge-off { background: #f0efec; color: var(--text-muted); }
-.admin-badge-warn { background: #fdecea; color: var(--danger); }
-
-.admin-actions-cell { display: flex; gap: 6px; }
-.admin-action-btn {
-  padding: 6px 9px;
-  font-size: 12px;
-  font-weight: 600;
-  border-radius: 8px;
-  background: #f0efec;
-  color: var(--text);
-  transition: transform 0.15s cubic-bezier(.4,0,.2,1), background 0.15s ease;
-}
-.admin-action-btn:active { transform: scale(0.94); background: #e6e4df; }
-
-@media (max-width: 480px) {
-  .admin-summary { flex-direction: column; }
-}
-
 /* ---------- מודאלים ---------- */
 .modal {
   position: fixed;
@@ -463,11 +373,19 @@ textarea.text-input { resize: vertical; }
   margin-top: 4px;
 }
 
-.field-hint {
+.split-divider {
   font-size: 12px;
+  font-weight: 600;
+  color: var(--c-split);
+  border-top: 1px dashed var(--border);
+  margin-top: 14px;
+  padding-top: 10px;
+  margin-bottom: 4px;
+}
+
+#shift-start:disabled {
+  background: #f0efec;
   color: var(--text-muted);
-  margin-top: -8px;
-  margin-bottom: 12px;
 }
 
 .modal-actions {
