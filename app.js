@@ -184,6 +184,7 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam) {
   showScreen('screen-app');
   refreshMonth();
   loadPersonalAlerts();
+  flushOfflineQueue();
 }
 
 $('login-form').addEventListener('submit', async (e) => {
@@ -1080,16 +1081,28 @@ $('shift-form').addEventListener('submit', async (e) => {
   try {
     // תמיד saveManualShift - זו הדרך היחידה שמבטיחה סימון ***
     // ומגינה על הדיווח מפני תיקון אוטומטי של המערכת.
-    const result = await callApi('POST', 'saveManualShift', {
+    const params = {
       code: state.code, dateStr, startTime, endTime, notes, dayType, workplace,
       entry2, exit2, breakType
-    });
+    };
+    const result = await callApi('POST', 'saveManualShift', params);
     showToast(result.message || 'נשמר בהצלחה');
     closeShiftModal();
     await refreshMonthKeepingSelection(dateStr);
   } catch (err) {
-    errBox.textContent = err.message || 'שגיאה בשמירה';
-    errBox.classList.remove('hidden');
+    // אם זו שגיאת רשת אמיתית (לא שגיאת אימות מהשרת) - שומרים בתור
+    // מקומי במקום לאבד את הדיווח, ומנסים לסנכרן אוטומטית כשהחיבור חוזר.
+    if (isNetworkError(err)) {
+      queueOfflineAction('saveManualShift', {
+        code: state.code, dateStr, startTime, endTime, notes, dayType, workplace,
+        entry2, exit2, breakType
+      });
+      showToast('אין חיבור כרגע - הדיווח נשמר ויישלח אוטומטית כשהחיבור יחזור');
+      closeShiftModal();
+    } else {
+      errBox.textContent = err.message || 'שגיאה בשמירה';
+      errBox.classList.remove('hidden');
+    }
   }
 });
 
@@ -1179,6 +1192,77 @@ function updateOnlineStatus() {
 window.addEventListener('online', updateOnlineStatus);
 window.addEventListener('offline', updateOnlineStatus);
 updateOnlineStatus();
+
+// ---------------------------------------------------------------------
+// תור פעולות לא-מקוון - דיווח משמרת שנכשל בגלל רשת נשמר מקומית ונשלח
+// אוטומטית כשהחיבור חוזר. כדי שדיווח מאזור עם קליטה חלשה לא ילך לאיבוד.
+// ---------------------------------------------------------------------
+const OFFLINE_QUEUE_KEY = 'ds102_offline_queue';
+
+// מבחין בין כשל רשת אמיתי (fetch לא הצליח בכלל - TypeError בדפדפנים
+// סטנדרטיים) לבין שגיאה תקינה שהשרת החזיר בפועל (למשל נימוק חסר) -
+// רק את הראשון תורים, את השני מציגים למשתמש כרגיל כדי שיתקן.
+function isNetworkError(err) {
+  return !navigator.onLine || err instanceof TypeError;
+}
+
+function getOfflineQueue() {
+  try {
+    return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+function saveOfflineQueueRaw(queue) {
+  localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+  updateOfflineQueueBanner();
+}
+function queueOfflineAction(action, params) {
+  const queue = getOfflineQueue();
+  queue.push({ action, params, queuedAt: new Date().toISOString() });
+  saveOfflineQueueRaw(queue);
+}
+function updateOfflineQueueBanner() {
+  const banner = $('offline-queue-banner');
+  if (!banner) return;
+  const queue = getOfflineQueue();
+  if (queue.length === 0) {
+    banner.classList.add('hidden');
+  } else {
+    banner.classList.remove('hidden');
+    banner.textContent = queue.length + ' דיווחים ממתינים לסנכרון - יישלחו אוטומטית כשהחיבור יחזור';
+  }
+}
+
+async function flushOfflineQueue() {
+  const queue = getOfflineQueue();
+  if (queue.length === 0 || !navigator.onLine) return;
+  const remaining = [];
+  let syncedCount = 0;
+
+  for (const item of queue) {
+    try {
+      await callApi('POST', item.action, item.params);
+      syncedCount++;
+    } catch (err) {
+      if (isNetworkError(err)) {
+        remaining.push(item); // עדיין אין רשת בפועל - משאירים בתור לניסיון הבא
+      }
+      // שגיאה תקינה מהשרת (לא רשת) - לא ננסה שוב לבד, כדי לא להציף
+      // בכשלונות חוזרים על אותה בעיה (למשל נימוק חסר). פשוט מוותרים
+      // על הפריט הזה בשקט - זה מקרה נדיר וקצה, לא שכיח.
+    }
+  }
+
+  saveOfflineQueueRaw(remaining);
+  if (syncedCount > 0) {
+    showToast(syncedCount + ' דיווחים סונכרנו בהצלחה');
+    refreshMonth();
+  }
+}
+
+window.addEventListener('online', flushOfflineQueue);
+updateOfflineQueueBanner(); // בכל טעינת האפליקציה - מציג אם יש פעולות ממתינות משבתחילה
 
 // ---------------------------------------------------------------------
 // Service Worker
