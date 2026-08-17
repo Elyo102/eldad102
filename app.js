@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v44';
+const APP_VERSION = 'v45';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -220,6 +220,18 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
   loadPersonalAlerts();
   flushOfflineQueue();
   renderShortcutsBar();
+  startPersonalAlertsPolling();
+}
+
+// בדיקה תקופתית אוטומטית של התראות אישיות - בלי זה, מי שלא הפעיל/ה
+// Push (או שה-Push לא הגיע מכל סיבה) לא רואה שום דבר חדש עד שירעננו
+// ידנית. כל 30 שניות זה מספיק תכוף בלי להעמיס יתר על המידה על השרת.
+let personalAlertsPollInterval = null;
+function startPersonalAlertsPolling() {
+  if (personalAlertsPollInterval) clearInterval(personalAlertsPollInterval);
+  personalAlertsPollInterval = setInterval(() => {
+    loadPersonalAlerts();
+  }, 30000);
 }
 
 $('login-form').addEventListener('submit', async (e) => {
