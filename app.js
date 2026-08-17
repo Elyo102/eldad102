@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v46';
+const APP_VERSION = 'v47';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -437,6 +437,7 @@ function renderAdminUserCard(u) {
   const hoursLabel = (u.monthlyHours === null || u.monthlyHours === undefined) ? '—' : u.monthlyHours;
 
   card.innerHTML = `
+    <div class="admin-card-folder-icon" data-code="${escapeHtml(u.code || '')}" data-name="${escapeHtml(u.name || '')}" title="לחיצה כפולה לפתיחת המסמכים" style="font-size:38px;cursor:pointer;line-height:1;margin-left:6px;user-select:none">📁</div>
     <div style="flex:1;min-width:200px">
       <div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:15px;flex-wrap:wrap">
         ${u.isAdmin ? '' : `<input type="checkbox" class="bulk-select-checkbox" data-code="${escapeHtml(u.code)}" ${bulkSelectedCodes.has(u.code) ? 'checked' : ''} style="width:17px;height:17px;cursor:pointer">`}
@@ -514,6 +515,11 @@ document.querySelectorAll('.bulk-team-btn').forEach(btn => {
       showToast(err.message || 'שגיאה בשיוך המרוכז');
     }
   });
+});
+
+$('admin-users-list').addEventListener('dblclick', (e) => {
+  const folderIcon = e.target.closest('.admin-card-folder-icon');
+  if (folderIcon) openUserDocsModal(folderIcon.dataset.code, folderIcon.dataset.name);
 });
 
 $('admin-users-list').addEventListener('click', async (e) => {
@@ -1594,7 +1600,7 @@ function renderDocList(listEl, emptyEl, docs, allowSign, allowReject, rejectTarg
       <div class="shift-details" style="display:flex;align-items:flex-start;gap:8px">
         ${allowEmailSelect ? `<input type="checkbox" class="doc-email-select-checkbox" data-url="${escapeHtml(d.url)}" ${docEmailSelectedUrls.has(d.url) ? 'checked' : ''} style="width:17px;height:17px;cursor:pointer;margin-top:3px">` : ''}
         <div>
-          <div class="shift-type">${escapeHtml(d.name)}</div>
+          <div class="shift-type">${d.name.indexOf('🔒 ') === 0 ? '🔒 ' + escapeHtml(d.name.slice(2)) : escapeHtml(d.name)}</div>
           <div class="shift-time">${formatDocDate(d.date)}</div>
         </div>
       </div>
@@ -1603,7 +1609,7 @@ function renderDocList(listEl, emptyEl, docs, allowSign, allowReject, rejectTarg
         ${signature ? `<button class="tool-btn doc-view-signed-btn" data-doc-url="${escapeHtml(d.url)}" data-sig-url="${escapeHtml(signature.url)}" data-name="${escapeHtml(d.name)}" style="width:auto;padding:8px 12px;font-weight:700">תעודת חתימה</button>` : ''}
         ${allowSign && !signature ? `<button class="tool-btn doc-sign-btn" data-name="${escapeHtml(d.name)}" style="width:auto;padding:8px 12px">חתום</button>` : ''}
         ${allowReject ? `<button class="tool-btn doc-reject-btn" data-code="${escapeHtml(rejectTargetCode)}" data-name="${escapeHtml(d.name)}" style="width:auto;padding:8px 12px;color:var(--danger)">דחה</button>` : ''}
-        ${allowDelete ? `<button class="tool-btn doc-delete-btn" data-name="${escapeHtml(d.name)}" data-direction="${deleteDirection}" style="width:auto;padding:8px 12px;color:var(--danger)">מחק</button>` : ''}
+        ${allowDelete && d.name.indexOf('🔒 ') !== 0 ? `<button class="tool-btn doc-delete-btn" data-name="${escapeHtml(d.name)}" data-direction="${deleteDirection}" style="width:auto;padding:8px 12px;color:var(--danger)">מחק</button>` : ''}
       </div>
     `;
     listEl.appendChild(card);
@@ -1933,9 +1939,11 @@ $('send-doc-submit-btn').addEventListener('click', async () => {
   try {
     const fileBase64 = await fileToBase64(file);
     const res = await callApi('POST', 'adminUploadDocumentToUser', {
-      adminCode: state.code, targetCode: userDocsTargetCode, fileBase64, fileName: file.name, mimeType: file.type
+      adminCode: state.code, targetCode: userDocsTargetCode, fileBase64, fileName: file.name, mimeType: file.type,
+      protectFromDeletion: $('send-doc-protect-checkbox').checked
     });
     showToast(res.message || 'הקובץ נשלח בהצלחה');
+    $('send-doc-protect-checkbox').checked = false;
     $('send-doc-modal').classList.add('hidden');
     openUserDocsModal(userDocsTargetCode, targetName);
   } catch (err) {
