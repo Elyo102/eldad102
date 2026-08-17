@@ -154,7 +154,10 @@
         <button id="procedures-btn" class="icon-btn" title="נהלים">📋</button>
         <button id="team-btn" class="icon-btn hidden" title="צוות ניהול">👥</button>
         <button id="shift-team-btn" class="icon-btn hidden" title="ניהול משמרת">🚒</button>
-        <button id="admin-btn" class="icon-btn hidden" title="ניהול מערכת">⚙</button>
+        <button id="admin-btn" class="icon-btn hidden" title="ניהול מערכת" style="position:relative">
+          ⚙
+          <span id="admin-alerts-badge" class="hidden" style="position:absolute;top:-4px;left:-4px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;border-radius:50%;min-width:16px;height:16px;display:flex;align-items:center;justify-content:center;padding:0 3px">0</span>
+        </button>
         <button id="logout-btn" class="icon-btn" title="יציאה">יציאה</button>
       </div>
     </div>
@@ -216,6 +219,10 @@
   </header>
 
   <main class="app-main">
+    <div id="admin-personal-alerts-section" class="hidden" style="margin-bottom:18px">
+      <div class="stats-card-title" style="color:var(--danger)">📬 התראות אישיות שלך</div>
+      <div id="admin-personal-alerts-list"></div>
+    </div>
     <div id="open-alerts-section" class="hidden" style="margin-bottom:18px">
       <div class="stats-card-title" style="color:var(--danger)">⚠️ התראות פתוחות - דורשות טיפול</div>
       <div id="open-alerts-list"></div>
