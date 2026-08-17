@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v38';
+const APP_VERSION = 'v40';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -72,7 +72,7 @@ const state = {
 const $ = (id) => document.getElementById(id);
 
 function showScreen(id) {
-  ['screen-login', 'screen-register', 'screen-forgot', 'screen-app', 'screen-admin', 'screen-team', 'screen-documents', 'screen-procedures', 'screen-shift-team'].forEach(s => {
+  ['screen-login', 'screen-register', 'screen-forgot', 'screen-app', 'screen-admin', 'screen-team', 'screen-documents', 'screen-procedures', 'screen-shift-team', 'screen-calendar'].forEach(s => {
     $(s).classList.toggle('hidden', s !== id);
   });
 }
@@ -195,6 +195,7 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
   $('admin-btn').classList.toggle('hidden', !state.isManager);
   $('team-btn').classList.toggle('hidden', !state.isManager);
   $('shift-team-btn').classList.toggle('hidden', !state.shiftTeam);
+  $('calendar-btn').classList.toggle('hidden', !state.isManager);
   // HR לא מדווחת/מתקנת/מוחקת משמרות - אין לה בכלל לשונית משמרות
   // בגיליון, אז כל אזור החודש (ניווט, סך שעות, אישור דוח) לא רלוונטי.
   $('add-shift-btn').classList.toggle('hidden', state.isHr);
@@ -444,7 +445,7 @@ function renderAdminUserCard(u) {
         ${u.role ? `<button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-role="" style="width:auto;padding:6px 12px;color:var(--text-muted)">הסר תפקיד</button>` : ''}
       `}
       <button class="tool-btn admin-docs-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">מסמכים</button>
-      ${u.codeHidden ? '' : `<button class="tool-btn admin-reminder-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">תזכורת</button>`}
+      <button class="tool-btn admin-reminder-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">תזכורת</button>
     </div>
   `;
   return card;
@@ -2314,6 +2315,179 @@ $('confirmable-broadcast-send-btn').addEventListener('click', async () => {
   } catch (err) {
     errBox.textContent = err.message || 'שגיאה בשיגור';
     errBox.classList.remove('hidden');
+  }
+});
+
+// ---------------------------------------------------------------------
+// יומן אירועים
+// ---------------------------------------------------------------------
+const calendarState = {
+  currentMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+  allEvents: [],
+  categoryFilter: '',
+  selectedDateStr: null
+};
+
+const HEBREW_DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+const HEBREW_MONTH_NAMES = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+
+$('calendar-btn').addEventListener('click', () => {
+  showScreen('screen-calendar');
+  loadCalendarEvents();
+});
+$('calendar-back-btn').addEventListener('click', () => showScreen(state.isHr ? 'screen-admin' : 'screen-app'));
+
+async function loadCalendarEvents() {
+  try {
+    const result = await callApi('GET', 'listMyEvents', { code: state.code });
+    calendarState.allEvents = result.events || [];
+
+    const filterSel = $('calendar-category-filter');
+    const catSel = $('event-category-input');
+    if (filterSel.options.length <= 1) {
+      (result.categories || []).forEach(c => {
+        const opt1 = document.createElement('option'); opt1.value = c; opt1.textContent = c;
+        filterSel.appendChild(opt1);
+        const opt2 = document.createElement('option'); opt2.value = c; opt2.textContent = c;
+        catSel.appendChild(opt2);
+      });
+    }
+
+    $('calendar-distribute-btn').classList.toggle('hidden', !state.shiftTeam);
+    renderCalendarGrid();
+  } catch (err) {
+    showToast(err.message || 'שגיאה בטעינת היומן');
+  }
+}
+
+function renderCalendarGrid() {
+  const month = calendarState.currentMonth;
+  $('calendar-month-label').textContent = HEBREW_MONTH_NAMES[month.getMonth()] + ' ' + month.getFullYear();
+
+  const dayNamesEl = $('calendar-day-names');
+  dayNamesEl.innerHTML = HEBREW_DAY_NAMES.map(d => `<div>${d}</div>`).join('');
+
+  const filtered = calendarState.allEvents.filter(e =>
+    !calendarState.categoryFilter || e.category === calendarState.categoryFilter
+  );
+
+  const firstDay = new Date(month.getFullYear(), month.getMonth(), 1);
+  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
+  const startOffset = firstDay.getDay(); // 0=ראשון
+
+  const grid = $('calendar-grid');
+  grid.innerHTML = '';
+  for (let i = 0; i < startOffset; i++) {
+    grid.appendChild(document.createElement('div'));
+  }
+  const todayStr = new Date().toISOString().slice(0, 10);
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = month.getFullYear() + '-' + String(month.getMonth() + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+    const dayEvents = filtered.filter(e => e.eventDate && e.eventDate.indexOf(dateStr) === 0);
+
+    const cell = document.createElement('div');
+    cell.style.cssText = 'min-height:56px;border:1px solid var(--border);border-radius:8px;padding:4px;cursor:pointer;background:#fff' + (dateStr === todayStr ? ';border-color:var(--brand);border-width:2px' : '');
+    cell.innerHTML = `
+      <div style="font-size:12px;font-weight:700;text-align:center">${d}</div>
+      <div style="display:flex;flex-direction:column;gap:2px;margin-top:2px">
+        ${dayEvents.slice(0, 2).map(e => `<div style="background:${e.color};color:#fff;border-radius:4px;padding:1px 3px;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.icon}</div>`).join('')}
+        ${dayEvents.length > 2 ? `<div style="font-size:9px;color:var(--text-muted)">+${dayEvents.length - 2}</div>` : ''}
+      </div>
+    `;
+    cell.addEventListener('click', () => showCalendarDayEvents(dateStr, dayEvents));
+    grid.appendChild(cell);
+  }
+}
+
+function showCalendarDayEvents(dateStr, dayEvents) {
+  calendarState.selectedDateStr = dateStr;
+  const list = $('calendar-day-events-list');
+  if (dayEvents.length === 0) {
+    list.innerHTML = `<div class="empty-state">אין אירועים ב-${dateStr}</div>`;
+    return;
+  }
+  list.innerHTML = `<div class="stats-card-title" style="margin-bottom:8px">אירועי ${dateStr}</div>` + dayEvents.map(e => `
+    <div class="shift-card">
+      <div class="shift-details">
+        <div class="shift-type">${e.icon} ${escapeHtml(e.title)}</div>
+        <div class="shift-time">${new Date(e.eventDate).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })} · ${escapeHtml(e.category)}</div>
+      </div>
+      <button class="tool-btn calendar-delete-event-btn" data-id="${escapeHtml(e.id)}" style="width:auto;padding:8px 12px;color:var(--danger)">מחק</button>
+    </div>
+  `).join('');
+}
+
+$('calendar-day-events-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.calendar-delete-event-btn');
+  if (!btn) return;
+  if (!confirm('למחוק את האירוע?')) return;
+  try {
+    await callApi('POST', 'deleteMyEvent', { code: state.code, eventId: btn.dataset.id });
+    await loadCalendarEvents();
+    $('calendar-day-events-list').innerHTML = '';
+  } catch (err) {
+    showToast(err.message || 'שגיאה במחיקת האירוע');
+  }
+});
+
+$('calendar-prev-month').addEventListener('click', () => {
+  calendarState.currentMonth = new Date(calendarState.currentMonth.getFullYear(), calendarState.currentMonth.getMonth() - 1, 1);
+  renderCalendarGrid();
+});
+$('calendar-next-month').addEventListener('click', () => {
+  calendarState.currentMonth = new Date(calendarState.currentMonth.getFullYear(), calendarState.currentMonth.getMonth() + 1, 1);
+  renderCalendarGrid();
+});
+$('calendar-category-filter').addEventListener('change', (e) => {
+  calendarState.categoryFilter = e.target.value;
+  renderCalendarGrid();
+});
+
+$('calendar-add-event-btn').addEventListener('click', () => {
+  $('event-title-input').value = '';
+  $('event-datetime-input').value = '';
+  document.querySelectorAll('.event-reminder-checkbox').forEach(cb => { cb.checked = false; });
+  $('add-event-error').classList.add('hidden');
+  $('add-event-modal').classList.remove('hidden');
+});
+$('close-add-event-modal').addEventListener('click', () => $('add-event-modal').classList.add('hidden'));
+$('add-event-submit-btn').addEventListener('click', async () => {
+  const title = $('event-title-input').value.trim();
+  const datetimeVal = $('event-datetime-input').value;
+  const category = $('event-category-input').value;
+  const offsetDaysList = Array.from(document.querySelectorAll('.event-reminder-checkbox:checked')).map(cb => Number(cb.value));
+  const errBox = $('add-event-error');
+  if (!title) {
+    errBox.textContent = 'יש להזין כותרת';
+    errBox.classList.remove('hidden');
+    return;
+  }
+  if (!datetimeVal) {
+    errBox.textContent = 'יש לבחור תאריך ושעה';
+    errBox.classList.remove('hidden');
+    return;
+  }
+  try {
+    const res = await callApi('POST', 'createEventWithReminders', {
+      code: state.code, title, eventDateISO: new Date(datetimeVal).toISOString(), offsetDaysList, category
+    });
+    showToast(res.message || 'האירוע נוצר');
+    $('add-event-modal').classList.add('hidden');
+    loadCalendarEvents();
+  } catch (err) {
+    errBox.textContent = err.message || 'שגיאה ביצירת האירוע';
+    errBox.classList.remove('hidden');
+  }
+});
+
+$('calendar-distribute-btn').addEventListener('click', async () => {
+  const monthKey = calendarState.currentMonth.getFullYear() + '-' + String(calendarState.currentMonth.getMonth() + 1).padStart(2, '0');
+  if (!confirm(`להפיץ את יומן החודש (${HEBREW_MONTH_NAMES[calendarState.currentMonth.getMonth()]}) לכל אנשי הצוות שלך?`)) return;
+  try {
+    const res = await callApi('POST', 'distributeCalendarToTeam', { code: state.code, monthKey });
+    showToast(res.message || 'היומן הופץ');
+  } catch (err) {
+    showToast(err.message || 'שגיאה בהפצת היומן');
   }
 });
 
