@@ -457,6 +457,24 @@ textarea.text-input { resize: vertical; }
 
 @media (min-width: 700px) {
   .bottom-tools, .modal-content { max-width: 640px; }
+
+  /* מסכי הניהול (לא מסך המשמרות האישי) מנצלים יותר מהרוחב בדסקטופ -
+     שם יש הרבה כרטיסים לצד זה, ולא צריך שיישארו צרים כמו אפליקציית מובייל */
+  #screen-admin .app-main,
+  #screen-team .app-main,
+  #screen-shift-team .app-main,
+  #screen-documents .app-main,
+  #screen-procedures .app-main {
+    max-width: 1100px;
+  }
+}
+
+@media (min-width: 1300px) {
+  #screen-admin .app-main,
+  #screen-team .app-main,
+  #screen-shift-team .app-main {
+    max-width: 1300px;
+  }
 }
 
 /* ---------- בועת תזכורת לנימוק חובה (החלפה צרכי מערכת / קריאת פתע) ---------- */
@@ -501,4 +519,21 @@ textarea.text-input { resize: vertical; }
 @keyframes alertPulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(193,39,45,0.25); }
   50% { box-shadow: 0 0 0 6px rgba(193,39,45,0); }
+}
+
+/* ---------- רשת כרטיסים למסכי הניהול בדסקטופ רחב ---------- */
+@media (min-width: 900px) {
+  #admin-users-list,
+  #team-list,
+  #shift-team-list,
+  #open-alerts-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 10px;
+    align-items: start;
+  }
+  #admin-users-list .shift-card,
+  #team-list .shift-card {
+    flex-wrap: wrap;
+  }
 }
