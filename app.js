@@ -29,6 +29,15 @@ const DAY_TYPE_COLORS = {
 };
 const DAY_TYPE_ORDER = ['רגיל', 'חופש', 'מחלה', 'מילואים', 'יטבתה', 'החלפה צרכי מערכת', 'המשך משמרת', 'משמרת מפוצלת', 'קריאת פתע'];
 
+// צבעי המשמרות - זהים לצבעי הכתב האמיתיים בסידור החיצוני (אומת מול
+// scanScheduleColors ב-16.8.2026): א=אדום/רמי חנן, ב=ירוק/רז בכור
+// (+אלמקייס כסגן), ג=כחול/אייל טויטו.
+const SHIFT_TEAM_BADGES = [
+  { label: 'משמרת א', letter: 'א', color: '#980000' },
+  { label: 'משמרת ב', letter: 'ב', color: '#38761d' },
+  { label: 'משמרת ג', letter: 'ג', color: '#0000ff' }
+];
+
 // שעת כניסה נעולה (לא ניתנת לעריכה) עבור סוגי יום ספציפיים - כרגע רק
 // "המשך משמרת" נעול על 07:00, בדיוק כמו שהשרת בכל מקרה כופה בפועל.
 const LOCKED_START_TIME = { 'המשך משמרת': '07:00' };
@@ -54,7 +63,7 @@ const state = {
 const $ = (id) => document.getElementById(id);
 
 function showScreen(id) {
-  ['screen-login', 'screen-register', 'screen-forgot', 'screen-app', 'screen-admin', 'screen-team', 'screen-documents', 'screen-procedures'].forEach(s => {
+  ['screen-login', 'screen-register', 'screen-forgot', 'screen-app', 'screen-admin', 'screen-team', 'screen-documents', 'screen-procedures', 'screen-shift-team'].forEach(s => {
     $(s).classList.toggle('hidden', s !== id);
   });
 }
@@ -113,18 +122,20 @@ async function callApi(method, action, params) {
 // ---------------------------------------------------------------------
 // אחסון מקומי (זוכר התחברות בין פתיחות)
 // ---------------------------------------------------------------------
-function saveSession(code, name, isAdmin, isManager) {
+function saveSession(code, name, isAdmin, isManager, shiftTeam) {
   localStorage.setItem('ds102_code', code);
   localStorage.setItem('ds102_name', name || '');
   localStorage.setItem('ds102_admin', isAdmin ? '1' : '');
   localStorage.setItem('ds102_manager', isManager ? '1' : '');
+  localStorage.setItem('ds102_shift_team', shiftTeam || '');
 }
 function loadSession() {
   return {
     code: localStorage.getItem('ds102_code'),
     name: localStorage.getItem('ds102_name'),
     isAdmin: localStorage.getItem('ds102_admin') === '1',
-    isManager: localStorage.getItem('ds102_manager') === '1'
+    isManager: localStorage.getItem('ds102_manager') === '1',
+    shiftTeam: localStorage.getItem('ds102_shift_team') || ''
   };
 }
 function clearSession() {
@@ -141,7 +152,7 @@ async function tryAutoLogin() {
   try {
     const result = await callApi('GET', 'login', { code: saved.code });
     if (result.valid) {
-      enterApp(result.code || saved.code, result.name || saved.name, result.isAdmin, result.isManager);
+      enterApp(result.code || saved.code, result.name || saved.name, result.isAdmin, result.isManager, result.shiftTeam);
     } else {
       clearSession();
       showScreen('screen-login');
@@ -149,7 +160,7 @@ async function tryAutoLogin() {
   } catch (err) {
     // אין אינטרנט/שגיאת שרת - עדיין ניכנס עם המידע השמור, ברוח offline-first
     if (saved.code) {
-      enterApp(saved.code, saved.name, saved.isAdmin, saved.isManager);
+      enterApp(saved.code, saved.name, saved.isAdmin, saved.isManager, saved.shiftTeam);
       showToast('לא הצלחתי לאמת מול השרת כרגע, עובד/ת במצב לא מקוון');
     } else {
       showScreen('screen-login');
@@ -157,19 +168,22 @@ async function tryAutoLogin() {
   }
 }
 
-function enterApp(code, name, isAdmin, isManager) {
+function enterApp(code, name, isAdmin, isManager, shiftTeam) {
   state.code = code;
   state.name = name;
   state.isAdmin = !!isAdmin;
   state.isManager = !!isManager || state.isAdmin;
-  saveSession(code, name, state.isAdmin, state.isManager);
+  state.shiftTeam = shiftTeam || '';
+  saveSession(code, name, state.isAdmin, state.isManager, state.shiftTeam);
   $('user-name').textContent = name || 'שלום';
   $('admin-btn').classList.toggle('hidden', !state.isManager);
   $('team-btn').classList.toggle('hidden', !state.isManager);
+  $('shift-team-btn').classList.toggle('hidden', !state.shiftTeam);
   const now = new Date();
   state.currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   showScreen('screen-app');
   refreshMonth();
+  loadPersonalAlerts();
 }
 
 $('login-form').addEventListener('submit', async (e) => {
@@ -180,7 +194,7 @@ $('login-form').addEventListener('submit', async (e) => {
   try {
     const result = await callApi('GET', 'login', { code });
     if (result.valid) {
-      enterApp(result.code || code, result.name, result.isAdmin, result.isManager);
+      enterApp(result.code || code, result.name, result.isAdmin, result.isManager, result.shiftTeam);
     } else {
       $('login-error').textContent = 'קוד לא תקין';
       $('login-error').classList.remove('hidden');
@@ -376,15 +390,20 @@ function renderAdminUserCard(u) {
 
   card.innerHTML = `
     <div style="flex:1;min-width:200px">
-      <div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:15px">
+      <div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:15px;flex-wrap:wrap">
         <span style="width:9px;height:9px;border-radius:50%;background:${dotColor};display:inline-block"></span>
         ${escapeHtml(u.name || '')} ${u.isAdmin ? '👑' : ''} ${u.isHr ? '🩺' : (u.isManager ? '🛡️' : '')} ${u.messagingBlocked ? '🚫' : ''}
+        ${u.isAdmin ? '' : SHIFT_TEAM_BADGES.map(t => `
+          <span class="shift-team-badge" data-code="${escapeHtml(u.code)}" data-team="${t.label}" data-active="${u.shiftTeam === t.label ? '1' : '0'}"
+            style="width:20px;height:20px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;cursor:pointer;
+              background:${u.shiftTeam === t.label ? t.color : '#fff'};color:${u.shiftTeam === t.label ? '#fff' : t.color};border:1.5px solid ${t.color}">${t.letter}</span>
+        `).join('')}
       </div>
       <div style="font-size:12.5px;color:var(--text-muted);margin-top:3px">
         קוד: ${escapeHtml(u.code)} · ${rel.label} · ${hoursLabel} שעות החודש
       </div>
       <div style="font-size:12.5px;margin-top:2px;color:${isActive ? 'var(--success)' : 'var(--danger)'}">
-        ${isActive ? 'פעיל' : 'לא פעיל'} ${u.isHr ? '· HR' : (u.isManager ? '· מנהל/ת צוות' : '')} ${u.messagingBlocked ? '· חסום משליחת הודעות' : ''}
+        ${isActive ? 'פעיל' : 'לא פעיל'} ${u.isHr ? '· HR' : (u.isManager ? '· מנהל/ת צוות' : '')} ${u.shiftTeam ? '· ' + u.shiftTeam : ''} ${u.messagingBlocked ? '· חסום משליחת הודעות' : ''}
       </div>
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
@@ -412,6 +431,7 @@ $('admin-users-list').addEventListener('click', async (e) => {
   const roleBtn = e.target.closest('.admin-role-btn');
   const docsBtn = e.target.closest('.admin-docs-btn');
   const reminderBtn = e.target.closest('.admin-reminder-btn');
+  const shiftTeamBadge = e.target.closest('.shift-team-badge');
 
   if (docsBtn) {
     openUserDocsModal(docsBtn.dataset.code, docsBtn.dataset.name);
@@ -420,6 +440,22 @@ $('admin-users-list').addEventListener('click', async (e) => {
 
   if (reminderBtn) {
     openReminderModal(reminderBtn.dataset.code, reminderBtn.dataset.name);
+    return;
+  }
+
+  if (shiftTeamBadge) {
+    const code = shiftTeamBadge.dataset.code;
+    const clickedTeam = shiftTeamBadge.dataset.team;
+    // לחיצה על ריבוע שכבר פעיל = הסרת השיוך. לחיצה על ריבוע אחר = מעבר אליו.
+    const alreadyActive = shiftTeamBadge.dataset.active === '1';
+    const teamLabel = alreadyActive ? '' : clickedTeam;
+    try {
+      const res = await callApi('POST', 'adminSetShiftTeam', { adminCode: state.code, targetCode: code, teamLabel });
+      showToast(res.message || 'עודכן');
+      loadAdminUsers();
+    } catch (err) {
+      showToast(err.message || 'שגיאה בעדכון שיוך המשמרת');
+    }
     return;
   }
 
@@ -589,6 +625,49 @@ $('team-btn').addEventListener('click', () => {
   loadTeamList();
 });
 $('team-back-btn').addEventListener('click', () => showScreen('screen-app'));
+
+// ---------------------------------------------------------------------
+// ניהול משמרת (מפקד/סגן משמרת) - צוות שנשלף אוטומטית מהסידור
+// ---------------------------------------------------------------------
+async function loadShiftTeam() {
+  const list = $('shift-team-list');
+  const empty = $('shift-team-empty');
+  list.innerHTML = '';
+  try {
+    const result = await callApi('GET', 'listMyShiftTeam', { code: state.code });
+    $('shift-team-title').textContent = result.teamLabel ? ('ניהול ' + result.teamLabel) : 'ניהול משמרת';
+    const members = result.members || [];
+    if (members.length === 0) {
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+    members.forEach(m => {
+      const rel = relativeLoginLabel(m.lastLoginAt);
+      const dotColor = rel.dot === 'green' ? '#2e7d32' : (rel.dot === 'amber' ? '#d38b00' : '#9e9e9e');
+      const hoursLabel = (m.monthlyHours === null || m.monthlyHours === undefined) ? '—' : m.monthlyHours;
+      const card = document.createElement('div');
+      card.className = 'shift-card';
+      card.innerHTML = `
+        <div class="shift-details">
+          <div class="shift-type" style="display:flex;align-items:center;gap:6px">
+            <span style="width:8px;height:8px;border-radius:50%;background:${dotColor};display:inline-block"></span>
+            ${escapeHtml(m.name)}
+          </div>
+          <div class="shift-time">${rel.label} · ${hoursLabel} שעות החודש · ${m.status === 'פעיל' ? 'פעיל' : 'לא פעיל'}</div>
+        </div>
+      `;
+      list.appendChild(card);
+    });
+  } catch (err) {
+    showToast(err.message || 'שגיאה בטעינת הצוות');
+  }
+}
+$('shift-team-btn').addEventListener('click', () => {
+  showScreen('screen-shift-team');
+  loadShiftTeam();
+});
+$('shift-team-back-btn').addEventListener('click', () => showScreen('screen-app'));
 
 $('close-team-message-modal').addEventListener('click', () => {
   $('team-message-modal').classList.add('hidden');
@@ -1507,6 +1586,54 @@ $('confirm-month-btn').addEventListener('click', async () => {
     showToast(res.message || 'הדוח אושר בהצלחה');
   } catch (err) {
     showToast(err.message || 'שגיאה באישור הדוח');
+  }
+});
+
+// ---------------------------------------------------------------------
+// התראות אישיות (לכל משתמש - למשל "קיבלת מסמך מליסה")
+// ---------------------------------------------------------------------
+async function loadPersonalAlerts() {
+  const section = $('personal-alerts-section');
+  const list = $('personal-alerts-list');
+  try {
+    const result = await callApi('GET', 'listMyPersonalAlerts', { code: state.code });
+    const alerts = result.alerts || [];
+    list.innerHTML = '';
+    if (alerts.length === 0) {
+      section.classList.add('hidden');
+      return;
+    }
+    section.classList.remove('hidden');
+    alerts.forEach(a => {
+      const card = document.createElement('div');
+      card.className = 'alert-card';
+      card.innerHTML = `
+        <div style="font-weight:700;color:var(--danger)">${escapeHtml(a.title)}</div>
+        <div style="font-size:13px;margin-top:3px">${escapeHtml(a.body || '')}</div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          ${a.linkUrl ? `<button class="tool-btn personal-alert-open-btn" data-url="${escapeHtml(a.linkUrl)}" style="width:auto;padding:6px 12px">פתח</button>` : ''}
+          <button class="tool-btn personal-alert-handled-btn" data-id="${escapeHtml(a.id)}" style="width:auto;padding:6px 12px">סמן כטופל</button>
+        </div>
+      `;
+      list.appendChild(card);
+    });
+  } catch (err) {
+    // כשל בטעינת התראות אישיות לא אמור להציג שגיאה בולטת - זה לא קריטי
+  }
+}
+
+$('personal-alerts-list').addEventListener('click', async (e) => {
+  const openBtn = e.target.closest('.personal-alert-open-btn');
+  if (openBtn) window.open(openBtn.dataset.url, '_blank');
+
+  const handledBtn = e.target.closest('.personal-alert-handled-btn');
+  if (handledBtn) {
+    try {
+      await callApi('POST', 'markPersonalAlertHandled', { code: state.code, alertId: handledBtn.dataset.id });
+      loadPersonalAlerts();
+    } catch (err) {
+      showToast(err.message || 'שגיאה בעדכון ההתראה');
+    }
   }
 });
 
