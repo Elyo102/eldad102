@@ -219,6 +219,15 @@
     <button id="admin-broadcast-btn" class="btn btn-primary" style="margin-bottom:16px">שלח הודעה לכולם</button>
     <button id="admin-add-manager-btn" class="btn btn-install" style="margin-bottom:16px">הוסף מנהל/ת צוות חדש/ה</button>
     <button id="admin-upload-procedure-btn" class="btn btn-install" style="margin-bottom:16px">העלאת נוהל חדש</button>
+
+    <div id="bulk-shift-team-bar" class="hidden" style="position:sticky;top:0;z-index:5;background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span id="bulk-selected-count" style="font-weight:700;font-size:13px">0 נבחרו</span>
+      <button class="tool-btn bulk-team-btn" data-team="משמרת א" style="width:auto;padding:6px 12px;border-color:#980000;color:#980000">שייך לא'</button>
+      <button class="tool-btn bulk-team-btn" data-team="משמרת ב" style="width:auto;padding:6px 12px;border-color:#38761d;color:#38761d">שייך לב'</button>
+      <button class="tool-btn bulk-team-btn" data-team="משמרת ג" style="width:auto;padding:6px 12px;border-color:#0000ff;color:#0000ff">שייך לג'</button>
+      <button id="bulk-clear-selection-btn" class="tool-btn" style="width:auto;padding:6px 12px;color:var(--text-muted)">נקה בחירה</button>
+    </div>
+
     <div id="admin-users-list"></div>
     <div id="admin-empty" class="empty-state hidden">לא נמצאו משתמשים</div>
   </main>
