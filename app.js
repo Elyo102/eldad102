@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v36';
+const APP_VERSION = 'v37';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -1551,7 +1551,7 @@ function findSignatureForDoc(docs, docName) {
   return docs.find(d => d.name.indexOf(prefix) === 0) || null;
 }
 
-function renderDocList(listEl, emptyEl, docs, allowSign, allowReject, rejectTargetCode, allowDelete, deleteDirection) {
+function renderDocList(listEl, emptyEl, docs, allowSign, allowReject, rejectTargetCode, allowDelete, deleteDirection, allowEmailSelect) {
   listEl.innerHTML = '';
   if (docs.length === 0) {
     emptyEl.classList.remove('hidden');
@@ -1567,9 +1567,12 @@ function renderDocList(listEl, emptyEl, docs, allowSign, allowReject, rejectTarg
     const card = document.createElement('div');
     card.className = 'shift-card';
     card.innerHTML = `
-      <div class="shift-details">
-        <div class="shift-type">${escapeHtml(d.name)}</div>
-        <div class="shift-time">${formatDocDate(d.date)}</div>
+      <div class="shift-details" style="display:flex;align-items:flex-start;gap:8px">
+        ${allowEmailSelect ? `<input type="checkbox" class="doc-email-select-checkbox" data-url="${escapeHtml(d.url)}" ${docEmailSelectedUrls.has(d.url) ? 'checked' : ''} style="width:17px;height:17px;cursor:pointer;margin-top:3px">` : ''}
+        <div>
+          <div class="shift-type">${escapeHtml(d.name)}</div>
+          <div class="shift-time">${formatDocDate(d.date)}</div>
+        </div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="tool-btn doc-open-btn" data-url="${escapeHtml(d.url)}" style="width:auto;padding:8px 12px">פתח</button>
@@ -1826,20 +1829,58 @@ $('signature-save-btn').addEventListener('click', async () => {
 // מנהל/ת צוות - מסמכי משתמש, שליחת קובץ, תזכורות, נהלים
 // ---------------------------------------------------------------------
 let userDocsTargetCode = null;
+const docEmailSelectedUrls = new Set();
 
 async function openUserDocsModal(code, name) {
   userDocsTargetCode = code;
+  docEmailSelectedUrls.clear();
+  updateDocEmailBar();
   $('user-docs-modal-title').textContent = 'מסמכים - ' + name;
   $('user-docs-modal').classList.remove('hidden');
   try {
     const result = await callApi('GET', 'adminListUserDocuments', { adminCode: state.code, targetCode: code });
-    renderDocList($('user-docs-from-employee'), $('user-docs-from-employee'), result.fromEmployee || [], false, true, code);
-    renderDocList($('user-docs-from-manager'), $('user-docs-from-manager'), result.fromManager || [], false, false, null);
+    renderDocList($('user-docs-from-employee'), $('user-docs-from-employee'), result.fromEmployee || [], false, true, code, false, null, true);
+    renderDocList($('user-docs-from-manager'), $('user-docs-from-manager'), result.fromManager || [], false, false, null, false, null, true);
   } catch (err) {
     showToast(err.message || 'שגיאה בטעינת מסמכים');
   }
 }
 $('close-user-docs-modal').addEventListener('click', () => $('user-docs-modal').classList.add('hidden'));
+
+// בחירה מרובה לשליחה למייל
+function updateDocEmailBar() {
+  const bar = $('user-docs-email-bar');
+  const count = docEmailSelectedUrls.size;
+  $('user-docs-email-count').textContent = count + ' נבחרו';
+  bar.classList.toggle('hidden', count === 0);
+}
+$('user-docs-modal').addEventListener('change', (e) => {
+  const cb = e.target.closest('.doc-email-select-checkbox');
+  if (!cb) return;
+  if (cb.checked) docEmailSelectedUrls.add(cb.dataset.url);
+  else docEmailSelectedUrls.delete(cb.dataset.url);
+  updateDocEmailBar();
+});
+$('user-docs-email-clear-btn').addEventListener('click', () => {
+  docEmailSelectedUrls.clear();
+  document.querySelectorAll('.doc-email-select-checkbox').forEach(cb => { cb.checked = false; });
+  updateDocEmailBar();
+});
+$('user-docs-email-send-btn').addEventListener('click', async () => {
+  if (docEmailSelectedUrls.size === 0) return;
+  try {
+    const res = await callApi('POST', 'emailDocumentsToMe', {
+      code: state.code, fileUrls: Array.from(docEmailSelectedUrls)
+    });
+    showToast(res.message || 'נשלח בהצלחה');
+    docEmailSelectedUrls.clear();
+    updateDocEmailBar();
+    openUserDocsModal(userDocsTargetCode, $('user-docs-modal-title').textContent.replace('מסמכים - ', ''));
+  } catch (err) {
+    showToast(err.message || 'שגיאה בשליחה למייל');
+  }
+});
+
 $('user-docs-send-btn').addEventListener('click', () => {
   $('send-doc-file-input').value = '';
   $('send-doc-error').classList.add('hidden');
