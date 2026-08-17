@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v42';
+const APP_VERSION = 'v43';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -203,8 +203,17 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
   $('month-section-hr-hidden').classList.toggle('hidden', state.isHr);
   const now = new Date();
   state.currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  showScreen('screen-app');
-  if (!state.isHr) refreshMonth(); // ל-HR אין לשונית משמרות בכלל - אין מה למשוך
+  if (state.isHr) {
+    // HR נכנסת ישר למסך הניהול - שם היומן והבועות פרוסים ישירות,
+    // בלי צורך ללחוץ על אייקון כלשהו קודם.
+    showScreen('screen-admin');
+    loadAdminUsers();
+    loadOpenAlerts();
+    loadCalendarEvents();
+  } else {
+    showScreen('screen-app');
+    refreshMonth();
+  }
   loadPersonalAlerts();
   flushOfflineQueue();
   renderShortcutsBar();
@@ -260,9 +269,6 @@ $('admin-login-form').addEventListener('submit', async (e) => {
     }
     enterApp(result.code || code, result.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr);
     $('admin-login-modal').classList.add('hidden');
-    showScreen('screen-admin');
-    loadAdminUsers();
-    loadOpenAlerts();
   } catch (err) {
     errBox.textContent = err.message || 'שגיאה בהתחברות';
     errBox.classList.remove('hidden');
@@ -595,6 +601,7 @@ $('admin-btn').addEventListener('click', () => {
   $('admin-add-manager-btn').classList.toggle('hidden', !state.isAdmin);
   loadAdminUsers();
   loadOpenAlerts();
+  loadCalendarEvents();
 });
 $('admin-back-btn').addEventListener('click', () => showScreen('screen-app'));
 
@@ -2123,13 +2130,15 @@ async function loadPersonalAlerts() {
 
     list.innerHTML = '';
     adminList.innerHTML = '';
+    // אזור הכרטיסים האדום של admin-personal-alerts-section מוחלף עכשיו
+    // לחלוטין בבועות (dash-bubbles-container) - לא מציגים את שניהם יחד
+    adminSection.classList.add('hidden');
     if (alerts.length === 0) {
       section.classList.add('hidden');
-      adminSection.classList.add('hidden');
+      renderNotificationBubbles([]);
       return;
     }
     section.classList.remove('hidden');
-    adminSection.classList.remove('hidden');
 
     alerts.forEach(a => {
       // התראות "קריאת פתע" מתחילות בתגית 🚒🚨 (ראה triggerUrgentCallAlert
@@ -2149,6 +2158,7 @@ async function loadPersonalAlerts() {
       list.appendChild(renderAlertCard(a));
       adminList.appendChild(renderAlertCard(a));
     });
+    renderNotificationBubbles(alerts);
   } catch (err) {
     // כשל בטעינת התראות אישיות לא אמור להציג שגיאה בולטת - זה לא קריטי
   }
@@ -2321,7 +2331,9 @@ $('confirmable-broadcast-send-btn').addEventListener('click', async () => {
 });
 
 // ---------------------------------------------------------------------
-// יומן אירועים
+// יומן אירועים - יש שני יעדים אפשריים: המסך הנפרד (calendar-*, לראשי
+// משמרות שמגיעים דרך הכפתור) והגרסה המוטמעת ישירות במסך הכניסה של HR
+// (dash-calendar-*) - שניהם חולקים את אותו state ואותו נתונים.
 // ---------------------------------------------------------------------
 const calendarState = {
   currentMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
@@ -2332,6 +2344,11 @@ const calendarState = {
 
 const HEBREW_DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 const HEBREW_MONTH_NAMES = ['ינואר', 'פברואר', 'מרץ', 'אפריל', 'מאי', 'יוני', 'יולי', 'אוגוסט', 'ספטמבר', 'אוקטובר', 'נובמבר', 'דצמבר'];
+const CALENDAR_TARGETS = []; // אילו קידומות פעילות במסך הנוכחי - נבדק דינמית לפי מה שקיים ב-DOM
+
+function activeCalendarPrefixes() {
+  return ['calendar-', 'dash-calendar-'].filter(p => document.getElementById(p + 'grid'));
+}
 
 $('calendar-btn').addEventListener('click', () => {
   showScreen('screen-calendar');
@@ -2344,18 +2361,27 @@ async function loadCalendarEvents() {
     const result = await callApi('GET', 'listMyEvents', { code: state.code });
     calendarState.allEvents = result.events || [];
 
-    const filterSel = $('calendar-category-filter');
+    ['calendar-category-filter', 'dash-calendar-category-filter'].forEach(id => {
+      const sel = $(id);
+      if (sel && sel.options.length <= 1) {
+        (result.categories || []).forEach(c => {
+          const opt = document.createElement('option'); opt.value = c; opt.textContent = c;
+          sel.appendChild(opt);
+        });
+      }
+    });
     const catSel = $('event-category-input');
-    if (filterSel.options.length <= 1) {
+    if (catSel && catSel.options.length === 0) {
       (result.categories || []).forEach(c => {
-        const opt1 = document.createElement('option'); opt1.value = c; opt1.textContent = c;
-        filterSel.appendChild(opt1);
-        const opt2 = document.createElement('option'); opt2.value = c; opt2.textContent = c;
-        catSel.appendChild(opt2);
+        const opt = document.createElement('option'); opt.value = c; opt.textContent = c;
+        catSel.appendChild(opt);
       });
     }
 
-    $('calendar-distribute-btn').classList.toggle('hidden', !state.shiftTeam);
+    ['calendar-distribute-btn', 'dash-calendar-distribute-btn'].forEach(id => {
+      const btn = $(id);
+      if (btn) btn.classList.toggle('hidden', !state.shiftTeam);
+    });
     renderCalendarGrid();
   } catch (err) {
     showToast(err.message || 'שגיאה בטעינת היומן');
@@ -2363,11 +2389,16 @@ async function loadCalendarEvents() {
 }
 
 function renderCalendarGrid() {
-  const month = calendarState.currentMonth;
-  $('calendar-month-label').textContent = HEBREW_MONTH_NAMES[month.getMonth()] + ' ' + month.getFullYear();
+  activeCalendarPrefixes().forEach(prefix => renderCalendarGridInto(prefix));
+}
 
-  const dayNamesEl = $('calendar-day-names');
-  dayNamesEl.innerHTML = HEBREW_DAY_NAMES.map(d => `<div>${d}</div>`).join('');
+function renderCalendarGridInto(prefix) {
+  const month = calendarState.currentMonth;
+  const titleLabel = $(prefix + 'month-label');
+  if (titleLabel) titleLabel.textContent = HEBREW_MONTH_NAMES[month.getMonth()] + ' ' + month.getFullYear();
+
+  const dayNamesEl = $(prefix + 'day-names');
+  if (dayNamesEl) dayNamesEl.innerHTML = HEBREW_DAY_NAMES.map(d => `<div>${d}</div>`).join('');
 
   const filtered = calendarState.allEvents.filter(e =>
     !calendarState.categoryFilter || e.category === calendarState.categoryFilter
@@ -2377,7 +2408,8 @@ function renderCalendarGrid() {
   const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate();
   const startOffset = firstDay.getDay(); // 0=ראשון
 
-  const grid = $('calendar-grid');
+  const grid = $(prefix + 'grid');
+  if (!grid) return;
   grid.innerHTML = '';
   for (let i = 0; i < startOffset; i++) {
     grid.appendChild(document.createElement('div'));
@@ -2396,14 +2428,15 @@ function renderCalendarGrid() {
         ${dayEvents.length > 2 ? `<div style="font-size:9px;color:var(--text-muted)">+${dayEvents.length - 2}</div>` : ''}
       </div>
     `;
-    cell.addEventListener('click', () => showCalendarDayEvents(dateStr, dayEvents));
+    cell.addEventListener('click', () => showCalendarDayEvents(prefix, dateStr, dayEvents));
     grid.appendChild(cell);
   }
 }
 
-function showCalendarDayEvents(dateStr, dayEvents) {
+function showCalendarDayEvents(prefix, dateStr, dayEvents) {
   calendarState.selectedDateStr = dateStr;
-  const list = $('calendar-day-events-list');
+  const list = $(prefix + 'day-events-list');
+  if (!list) return;
   if (dayEvents.length === 0) {
     list.innerHTML = `<div class="empty-state">אין אירועים ב-${dateStr}</div>`;
     return;
@@ -2419,39 +2452,51 @@ function showCalendarDayEvents(dateStr, dayEvents) {
   `).join('');
 }
 
-$('calendar-day-events-list').addEventListener('click', async (e) => {
+async function handleCalendarDeleteClick(e) {
   const btn = e.target.closest('.calendar-delete-event-btn');
   if (!btn) return;
   if (!confirm('למחוק את האירוע?')) return;
   try {
     await callApi('POST', 'deleteMyEvent', { code: state.code, eventId: btn.dataset.id });
     await loadCalendarEvents();
-    $('calendar-day-events-list').innerHTML = '';
+    document.querySelectorAll('[id$="calendar-day-events-list"]').forEach(el => { el.innerHTML = ''; });
   } catch (err) {
     showToast(err.message || 'שגיאה במחיקת האירוע');
   }
-});
+}
+$('calendar-day-events-list').addEventListener('click', handleCalendarDeleteClick);
+$('dash-calendar-day-events-list').addEventListener('click', handleCalendarDeleteClick);
 
-$('calendar-prev-month').addEventListener('click', () => {
-  calendarState.currentMonth = new Date(calendarState.currentMonth.getFullYear(), calendarState.currentMonth.getMonth() - 1, 1);
-  renderCalendarGrid();
-});
-$('calendar-next-month').addEventListener('click', () => {
-  calendarState.currentMonth = new Date(calendarState.currentMonth.getFullYear(), calendarState.currentMonth.getMonth() + 1, 1);
-  renderCalendarGrid();
-});
-$('calendar-category-filter').addEventListener('change', (e) => {
-  calendarState.categoryFilter = e.target.value;
-  renderCalendarGrid();
-});
+function bindCalendarNav(prefix) {
+  const prevBtn = $(prefix + 'prev-month');
+  const nextBtn = $(prefix + 'next-month');
+  const filterSel = $(prefix + 'category-filter');
+  if (prevBtn) prevBtn.addEventListener('click', () => {
+    calendarState.currentMonth = new Date(calendarState.currentMonth.getFullYear(), calendarState.currentMonth.getMonth() - 1, 1);
+    renderCalendarGrid();
+  });
+  if (nextBtn) nextBtn.addEventListener('click', () => {
+    calendarState.currentMonth = new Date(calendarState.currentMonth.getFullYear(), calendarState.currentMonth.getMonth() + 1, 1);
+    renderCalendarGrid();
+  });
+  if (filterSel) filterSel.addEventListener('change', (e) => {
+    calendarState.categoryFilter = e.target.value;
+    renderCalendarGrid();
+  });
+}
+bindCalendarNav('calendar-');
+bindCalendarNav('dash-calendar-');
 
-$('calendar-add-event-btn').addEventListener('click', () => {
+function openAddEventModal() {
   $('event-title-input').value = '';
   $('event-datetime-input').value = '';
   document.querySelectorAll('.event-reminder-checkbox').forEach(cb => { cb.checked = false; });
   $('add-event-error').classList.add('hidden');
   $('add-event-modal').classList.remove('hidden');
-});
+}
+$('calendar-add-event-btn').addEventListener('click', openAddEventModal);
+$('dash-calendar-add-btn').addEventListener('click', openAddEventModal);
+
 $('close-add-event-modal').addEventListener('click', () => $('add-event-modal').classList.add('hidden'));
 $('add-event-submit-btn').addEventListener('click', async () => {
   const title = $('event-title-input').value.trim();
@@ -2482,7 +2527,7 @@ $('add-event-submit-btn').addEventListener('click', async () => {
   }
 });
 
-$('calendar-distribute-btn').addEventListener('click', async () => {
+async function handleDistributeCalendar() {
   const monthKey = calendarState.currentMonth.getFullYear() + '-' + String(calendarState.currentMonth.getMonth() + 1).padStart(2, '0');
   if (!confirm(`להפיץ את יומן החודש (${HEBREW_MONTH_NAMES[calendarState.currentMonth.getMonth()]}) לכל אנשי הצוות שלך?`)) return;
   try {
@@ -2491,7 +2536,84 @@ $('calendar-distribute-btn').addEventListener('click', async () => {
   } catch (err) {
     showToast(err.message || 'שגיאה בהפצת היומן');
   }
-});
+}
+$('calendar-distribute-btn').addEventListener('click', handleDistributeCalendar);
+$('dash-calendar-distribute-btn').addEventListener('click', handleDistributeCalendar);
+
+// ---------------------------------------------------------------------
+// בועות סבון להתראות אישיות - מוצג במקום כרטיסים במסך הכניסה של HR
+// ---------------------------------------------------------------------
+function renderNotificationBubbles(alerts) {
+  const container = $('dash-bubbles-container');
+  if (!container) return;
+  container.innerHTML = '';
+  alerts.forEach(a => {
+    const bubble = document.createElement('button');
+    bubble.className = 'notif-bubble';
+    bubble.innerHTML = `<span class="notif-bubble-text">${escapeHtml((a.title || '').replace(/^[^\s]+\s/, ''))}</span>`;
+    bubble.addEventListener('click', () => popBubble(bubble, a));
+    container.appendChild(bubble);
+  });
+}
+
+function popBubble(bubbleEl, alert) {
+  bubbleEl.classList.add('popping');
+  setTimeout(() => {
+    bubbleEl.remove();
+    openBubbleAlertModal(alert);
+  }, 280);
+}
+
+function openBubbleAlertModal(a) {
+  $('bubble-alert-title').textContent = a.title;
+  $('bubble-alert-body').textContent = a.body || '';
+  const actions = $('bubble-alert-actions');
+  actions.innerHTML = '';
+
+  const isConfirmable = (a.linkUrl || '').indexOf('confirmable:') === 0;
+  if (isConfirmable) {
+    const broadcastId = a.linkUrl.replace('confirmable:', '');
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'btn btn-primary';
+    confirmBtn.textContent = 'קראתי ואישרתי';
+    confirmBtn.addEventListener('click', async () => {
+      try {
+        await callApi('POST', 'confirmBroadcastRead', { code: state.code, broadcastId });
+        await callApi('POST', 'markPersonalAlertHandled', { code: state.code, alertId: a.id });
+        showToast('האישור נשמר');
+        $('bubble-alert-modal').classList.add('hidden');
+        loadPersonalAlerts();
+      } catch (err) {
+        showToast(err.message || 'שגיאה באישור');
+      }
+    });
+    actions.appendChild(confirmBtn);
+  } else {
+    if (a.linkUrl) {
+      const openBtn = document.createElement('button');
+      openBtn.className = 'btn btn-install';
+      openBtn.textContent = 'פתח';
+      openBtn.addEventListener('click', () => window.open(a.linkUrl, '_blank'));
+      actions.appendChild(openBtn);
+    }
+    const handledBtn = document.createElement('button');
+    handledBtn.className = 'btn btn-primary';
+    handledBtn.textContent = 'סמן כטופל';
+    handledBtn.addEventListener('click', async () => {
+      try {
+        await callApi('POST', 'markPersonalAlertHandled', { code: state.code, alertId: a.id });
+        $('bubble-alert-modal').classList.add('hidden');
+        loadPersonalAlerts();
+      } catch (err) {
+        showToast(err.message || 'שגיאה בעדכון ההתראה');
+      }
+    });
+    actions.appendChild(handledBtn);
+  }
+
+  $('bubble-alert-modal').classList.remove('hidden');
+}
+$('close-bubble-alert-modal').addEventListener('click', () => $('bubble-alert-modal').classList.add('hidden'));
 
 // ---------------------------------------------------------------------
 // מעקב אחר אישורי קריאה - "מי אישר ומי לא" לשידור ספציפי
