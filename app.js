@@ -391,6 +391,7 @@ function renderAdminUserCard(u) {
   card.innerHTML = `
     <div style="flex:1;min-width:200px">
       <div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:15px;flex-wrap:wrap">
+        ${u.isAdmin ? '' : `<input type="checkbox" class="bulk-select-checkbox" data-code="${escapeHtml(u.code)}" ${bulkSelectedCodes.has(u.code) ? 'checked' : ''} style="width:17px;height:17px;cursor:pointer">`}
         <span style="width:9px;height:9px;border-radius:50%;background:${dotColor};display:inline-block"></span>
         ${escapeHtml(u.name || '')} ${u.isAdmin ? '👑' : ''} ${u.isHr ? '🩺' : (u.isManager ? '🛡️' : '')} ${u.messagingBlocked ? '🚫' : ''}
         ${u.isAdmin ? '' : SHIFT_TEAM_BADGES.map(t => `
@@ -422,6 +423,50 @@ function renderAdminUserCard(u) {
   `;
   return card;
 }
+
+// ---------------------------------------------------------------------
+// בחירה מרובה + שיוך משמרת מרוכז
+// ---------------------------------------------------------------------
+const bulkSelectedCodes = new Set();
+
+function updateBulkBar() {
+  const bar = $('bulk-shift-team-bar');
+  const count = bulkSelectedCodes.size;
+  $('bulk-selected-count').textContent = count + ' נבחרו';
+  bar.classList.toggle('hidden', count === 0);
+}
+
+$('admin-users-list').addEventListener('change', (e) => {
+  const cb = e.target.closest('.bulk-select-checkbox');
+  if (!cb) return;
+  if (cb.checked) bulkSelectedCodes.add(cb.dataset.code);
+  else bulkSelectedCodes.delete(cb.dataset.code);
+  updateBulkBar();
+});
+
+$('bulk-clear-selection-btn').addEventListener('click', () => {
+  bulkSelectedCodes.clear();
+  document.querySelectorAll('.bulk-select-checkbox').forEach(cb => { cb.checked = false; });
+  updateBulkBar();
+});
+
+document.querySelectorAll('.bulk-team-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    if (bulkSelectedCodes.size === 0) return;
+    const teamLabel = btn.dataset.team;
+    try {
+      const res = await callApi('POST', 'adminBulkSetShiftTeam', {
+        adminCode: state.code, targetCodes: Array.from(bulkSelectedCodes), teamLabel
+      });
+      showToast(res.message || 'שויכו בהצלחה');
+      bulkSelectedCodes.clear();
+      updateBulkBar();
+      loadAdminUsers();
+    } catch (err) {
+      showToast(err.message || 'שגיאה בשיוך המרוכז');
+    }
+  });
+});
 
 $('admin-users-list').addEventListener('click', async (e) => {
   const toggleBtn = e.target.closest('.admin-toggle-btn');
