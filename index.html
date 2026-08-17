@@ -163,28 +163,30 @@
       </div>
     </div>
 
-    <div class="month-nav">
-      <button id="prev-month" class="icon-btn">›</button>
-      <div class="month-label" id="month-label">-</div>
-      <button id="next-month" class="icon-btn">‹</button>
-      <button id="export-sheet-btn" class="icon-btn export-btn" title="ייצוא לגיליון Google Sheets">
-        <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
-          <rect x="2" y="2" width="16" height="16" rx="2.5" fill="#0f9d58"/>
-          <g stroke="#fff" stroke-width="1.2">
-            <line x1="2" y1="7.3" x2="18" y2="7.3"/>
-            <line x1="2" y1="12.6" x2="18" y2="12.6"/>
-            <line x1="7.3" y1="2" x2="7.3" y2="18"/>
-            <line x1="12.6" y1="2" x2="12.6" y2="18"/>
-          </g>
-        </svg>
-      </button>
-    </div>
+    <div id="month-section-hr-hidden">
+      <div class="month-nav">
+        <button id="prev-month" class="icon-btn">›</button>
+        <div class="month-label" id="month-label">-</div>
+        <button id="next-month" class="icon-btn">‹</button>
+        <button id="export-sheet-btn" class="icon-btn export-btn" title="ייצוא לגיליון Google Sheets">
+          <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
+            <rect x="2" y="2" width="16" height="16" rx="2.5" fill="#0f9d58"/>
+            <g stroke="#fff" stroke-width="1.2">
+              <line x1="2" y1="7.3" x2="18" y2="7.3"/>
+              <line x1="2" y1="12.6" x2="18" y2="12.6"/>
+              <line x1="7.3" y1="2" x2="7.3" y2="18"/>
+              <line x1="12.6" y1="2" x2="12.6" y2="18"/>
+            </g>
+          </svg>
+        </button>
+      </div>
 
-    <div class="total-card">
-      <div class="total-label">סה"כ שעות בחודש</div>
-      <div class="total-value" id="month-total">0</div>
+      <div class="total-card">
+        <div class="total-label">סה"כ שעות בחודש</div>
+        <div class="total-value" id="month-total">0</div>
+      </div>
+      <button id="confirm-month-btn" class="btn btn-install" style="margin-top:10px">קראתי ואישרתי - דוח השעות תקין</button>
     </div>
-    <button id="confirm-month-btn" class="btn btn-install" style="margin-top:10px">קראתי ואישרתי - דוח השעות תקין</button>
   </header>
 
   <main class="app-main">
