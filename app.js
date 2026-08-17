@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v30';
+const APP_VERSION = 'v31';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -98,7 +98,11 @@ async function apiGet(action, params = {}) {
   Object.keys(params).forEach(k => {
     if (params[k] !== undefined && params[k] !== null) url.searchParams.set(k, params[k]);
   });
-  const res = await fetch(url.toString(), { method: 'GET' });
+  // מונע מהדפדפן להחזיר תשובה שמורה במטמון לבקשת GET זהה - בלי זה,
+  // פעולות כמו "סמן כטופל" יכלו להיראות "לא עובדות" למרות שהשרת
+  // בפועל עדכן נכון, כי הרענון שאחריהן קיבל תשובה ישנה מהמטמון.
+  url.searchParams.set('_t', Date.now());
+  const res = await fetch(url.toString(), { method: 'GET', cache: 'no-store' });
   if (!res.ok) throw new Error('שגיאת שרת (' + res.status + ')');
   return res.json();
 }
@@ -131,12 +135,13 @@ async function callApi(method, action, params) {
 // ---------------------------------------------------------------------
 // אחסון מקומי (זוכר התחברות בין פתיחות)
 // ---------------------------------------------------------------------
-function saveSession(code, name, isAdmin, isManager, shiftTeam) {
+function saveSession(code, name, isAdmin, isManager, shiftTeam, isHr) {
   localStorage.setItem('ds102_code', code);
   localStorage.setItem('ds102_name', name || '');
   localStorage.setItem('ds102_admin', isAdmin ? '1' : '');
   localStorage.setItem('ds102_manager', isManager ? '1' : '');
   localStorage.setItem('ds102_shift_team', shiftTeam || '');
+  localStorage.setItem('ds102_hr', isHr ? '1' : '');
 }
 function loadSession() {
   return {
@@ -144,7 +149,8 @@ function loadSession() {
     name: localStorage.getItem('ds102_name'),
     isAdmin: localStorage.getItem('ds102_admin') === '1',
     isManager: localStorage.getItem('ds102_manager') === '1',
-    shiftTeam: localStorage.getItem('ds102_shift_team') || ''
+    shiftTeam: localStorage.getItem('ds102_shift_team') || '',
+    isHr: localStorage.getItem('ds102_hr') === '1'
   };
 }
 function clearSession() {
@@ -161,7 +167,7 @@ async function tryAutoLogin() {
   try {
     const result = await callApi('GET', 'login', { code: saved.code });
     if (result.valid) {
-      enterApp(result.code || saved.code, result.name || saved.name, result.isAdmin, result.isManager, result.shiftTeam);
+      enterApp(result.code || saved.code, result.name || saved.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr);
     } else {
       clearSession();
       showScreen('screen-login');
@@ -169,7 +175,7 @@ async function tryAutoLogin() {
   } catch (err) {
     // אין אינטרנט/שגיאת שרת - עדיין ניכנס עם המידע השמור, ברוח offline-first
     if (saved.code) {
-      enterApp(saved.code, saved.name, saved.isAdmin, saved.isManager, saved.shiftTeam);
+      enterApp(saved.code, saved.name, saved.isAdmin, saved.isManager, saved.shiftTeam, saved.isHr);
       showToast('לא הצלחתי לאמת מול השרת כרגע, עובד/ת במצב לא מקוון');
     } else {
       showScreen('screen-login');
@@ -177,17 +183,22 @@ async function tryAutoLogin() {
   }
 }
 
-function enterApp(code, name, isAdmin, isManager, shiftTeam) {
+function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
   state.code = code;
   state.name = name;
   state.isAdmin = !!isAdmin;
   state.isManager = !!isManager || state.isAdmin;
   state.shiftTeam = shiftTeam || '';
-  saveSession(code, name, state.isAdmin, state.isManager, state.shiftTeam);
+  state.isHr = !!isHr;
+  saveSession(code, name, state.isAdmin, state.isManager, state.shiftTeam, state.isHr);
   $('user-name').textContent = name || 'שלום';
   $('admin-btn').classList.toggle('hidden', !state.isManager);
   $('team-btn').classList.toggle('hidden', !state.isManager);
   $('shift-team-btn').classList.toggle('hidden', !state.shiftTeam);
+  // HR לא מדווחת/מתקנת/מוחקת משמרות - אין לה בכלל לשונית משמרות
+  // בגיליון, אז כלים אלה לא רלוונטיים לה בכלל.
+  $('add-shift-btn').classList.toggle('hidden', state.isHr);
+  document.querySelector('.bottom-tools').classList.toggle('hidden', state.isHr);
   const now = new Date();
   state.currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   showScreen('screen-app');
@@ -204,7 +215,7 @@ $('login-form').addEventListener('submit', async (e) => {
   try {
     const result = await callApi('GET', 'login', { code });
     if (result.valid) {
-      enterApp(result.code || code, result.name, result.isAdmin, result.isManager, result.shiftTeam);
+      enterApp(result.code || code, result.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr);
     } else {
       $('login-error').textContent = 'קוד לא תקין';
       $('login-error').classList.remove('hidden');
@@ -244,7 +255,7 @@ $('admin-login-form').addEventListener('submit', async (e) => {
       errBox.classList.remove('hidden');
       return;
     }
-    enterApp(result.code || code, result.name, result.isAdmin, result.isManager, result.shiftTeam);
+    enterApp(result.code || code, result.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr);
     $('admin-login-modal').classList.add('hidden');
     showScreen('screen-admin');
     loadAdminUsers();
