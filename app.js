@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v32';
+const APP_VERSION = 'v33';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -1541,6 +1541,13 @@ async function loadMyDocuments() {
   }
 }
 
+// מוצא, בתוך אותה רשימת מסמכים, האם יש חתימה שמתאימה למסמך נתון -
+// לפי תבנית השם הקבועה בשרת: "חתימה - {שם המסמך} - {תאריך שעה}.png"
+function findSignatureForDoc(docs, docName) {
+  const prefix = 'חתימה - ' + docName + ' - ';
+  return docs.find(d => d.name.indexOf(prefix) === 0) || null;
+}
+
 function renderDocList(listEl, emptyEl, docs, allowSign, allowReject, rejectTargetCode, allowDelete, deleteDirection) {
   listEl.innerHTML = '';
   if (docs.length === 0) {
@@ -1549,6 +1556,11 @@ function renderDocList(listEl, emptyEl, docs, allowSign, allowReject, rejectTarg
   }
   emptyEl.classList.add('hidden');
   docs.forEach(d => {
+    // מדלגים על רינדור קובץ חתימה כשורה נפרדת בפני עצמה - הוא יוצג
+    // דרך כפתור "תעודת חתימה" על גבי המסמך המקורי שלו (למטה)
+    if (d.name.indexOf('חתימה - ') === 0) return;
+
+    const signature = findSignatureForDoc(docs, d.name);
     const card = document.createElement('div');
     card.className = 'shift-card';
     card.innerHTML = `
@@ -1556,9 +1568,10 @@ function renderDocList(listEl, emptyEl, docs, allowSign, allowReject, rejectTarg
         <div class="shift-type">${escapeHtml(d.name)}</div>
         <div class="shift-time">${formatDocDate(d.date)}</div>
       </div>
-      <div style="display:flex;gap:6px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="tool-btn doc-open-btn" data-url="${escapeHtml(d.url)}" style="width:auto;padding:8px 12px">פתח</button>
-        ${allowSign ? `<button class="tool-btn doc-sign-btn" data-name="${escapeHtml(d.name)}" style="width:auto;padding:8px 12px">חתום</button>` : ''}
+        ${signature ? `<button class="tool-btn doc-view-signed-btn" data-doc-url="${escapeHtml(d.url)}" data-sig-url="${escapeHtml(signature.url)}" data-name="${escapeHtml(d.name)}" style="width:auto;padding:8px 12px;font-weight:700">תעודת חתימה</button>` : ''}
+        ${allowSign && !signature ? `<button class="tool-btn doc-sign-btn" data-name="${escapeHtml(d.name)}" style="width:auto;padding:8px 12px">חתום</button>` : ''}
         ${allowReject ? `<button class="tool-btn doc-reject-btn" data-code="${escapeHtml(rejectTargetCode)}" data-name="${escapeHtml(d.name)}" style="width:auto;padding:8px 12px;color:var(--danger)">דחה</button>` : ''}
         ${allowDelete ? `<button class="tool-btn doc-delete-btn" data-name="${escapeHtml(d.name)}" data-direction="${deleteDirection}" style="width:auto;padding:8px 12px;color:var(--danger)">מחק</button>` : ''}
       </div>
@@ -1567,9 +1580,54 @@ function renderDocList(listEl, emptyEl, docs, allowSign, allowReject, rejectTarg
   });
 }
 
+function isPdfFile(name) {
+  return /\.pdf$/i.test(name || '');
+}
+
+// קישורי Drive רגילים (file.getUrl()) הם דף צפייה מלא, לא ניתנים
+// להטבעה ישירה בתוך <img>/<iframe>. ממירים לפורמט הטבעה: תמונה מקבלת
+// uc?export=view, PDF מקבל /preview (זה שמתאים ל-iframe).
+function driveDirectImageUrl(url) {
+  const match = url && url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  return match ? ('https://drive.google.com/uc?export=view&id=' + match[1]) : url;
+}
+function drivePreviewUrl(url) {
+  const match = url && url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  return match ? ('https://drive.google.com/file/d/' + match[1] + '/preview') : url;
+}
+
+function openSignedDocView(docUrl, sigUrl, docName) {
+  $('signed-doc-view-title').textContent = docName;
+  const container = $('signed-doc-view-doc-container');
+  container.innerHTML = '';
+  if (isPdfFile(docName)) {
+    const iframe = document.createElement('iframe');
+    iframe.src = drivePreviewUrl(docUrl);
+    iframe.style.width = '100%';
+    iframe.style.height = '360px';
+    iframe.style.border = 'none';
+    container.appendChild(iframe);
+  } else {
+    const img = document.createElement('img');
+    img.src = driveDirectImageUrl(docUrl);
+    img.style.width = '100%';
+    img.style.display = 'block';
+    img.alt = 'המסמך המקורי';
+    container.appendChild(img);
+  }
+  $('signed-doc-view-signature').src = driveDirectImageUrl(sigUrl);
+  $('signed-doc-view-open-original-btn').onclick = () => window.open(docUrl, '_blank');
+  $('signed-doc-view-modal').classList.remove('hidden');
+}
+$('close-signed-doc-view-modal').addEventListener('click', () => $('signed-doc-view-modal').classList.add('hidden'));
+
 document.addEventListener('click', async (e) => {
   const openBtn = e.target.closest('.doc-open-btn');
   if (openBtn) window.open(openBtn.dataset.url, '_blank');
+  const viewSignedBtn = e.target.closest('.doc-view-signed-btn');
+  if (viewSignedBtn) {
+    openSignedDocView(viewSignedBtn.dataset.docUrl, viewSignedBtn.dataset.sigUrl, viewSignedBtn.dataset.name);
+  }
   const signBtn = e.target.closest('.doc-sign-btn');
   if (signBtn) openSignatureModal(signBtn.dataset.name);
   const rejectBtn = e.target.closest('.doc-reject-btn');
