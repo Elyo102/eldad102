@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v41';
+const APP_VERSION = 'v42';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -2313,6 +2313,7 @@ $('confirmable-broadcast-send-btn').addEventListener('click', async () => {
     });
     showToast(res.message || 'השידור נשלח');
     $('confirmable-broadcast-modal').classList.add('hidden');
+    if (res.broadcastId) openBroadcastStatusModal(res.broadcastId);
   } catch (err) {
     errBox.textContent = err.message || 'שגיאה בשיגור';
     errBox.classList.remove('hidden');
@@ -2491,5 +2492,47 @@ $('calendar-distribute-btn').addEventListener('click', async () => {
     showToast(err.message || 'שגיאה בהפצת היומן');
   }
 });
+
+// ---------------------------------------------------------------------
+// מעקב אחר אישורי קריאה - "מי אישר ומי לא" לשידור ספציפי
+// ---------------------------------------------------------------------
+let currentBroadcastId = null;
+
+async function openBroadcastStatusModal(broadcastId) {
+  currentBroadcastId = broadcastId;
+  $('broadcast-status-modal').classList.remove('hidden');
+  await refreshBroadcastStatus();
+}
+
+async function refreshBroadcastStatus() {
+  if (!currentBroadcastId) return;
+  try {
+    const res = await callApi('GET', 'getBroadcastConfirmationStatus', {
+      fromCode: state.code, broadcastId: currentBroadcastId
+    });
+    $('broadcast-status-message').textContent = res.message || '';
+
+    const confirmedEl = $('broadcast-status-confirmed');
+    const notConfirmedEl = $('broadcast-status-not-confirmed');
+    const confirmed = res.confirmed || [];
+    const notConfirmed = res.notConfirmed || [];
+
+    confirmedEl.innerHTML = confirmed.length === 0
+      ? '<div class="empty-state">עדיין אף אחד לא אישר</div>'
+      : confirmed.map(name => `<div class="shift-card"><div class="shift-details"><div class="shift-type">✅ ${escapeHtml(name)}</div></div></div>`).join('');
+
+    notConfirmedEl.innerHTML = notConfirmed.length === 0
+      ? '<div class="empty-state">כולם אישרו!</div>'
+      : notConfirmed.map(name => `<div class="shift-card"><div class="shift-details"><div class="shift-type">⏳ ${escapeHtml(name)}</div></div></div>`).join('');
+  } catch (err) {
+    showToast(err.message || 'שגיאה בטעינת המעקב');
+  }
+}
+
+$('close-broadcast-status-modal').addEventListener('click', () => {
+  $('broadcast-status-modal').classList.add('hidden');
+  currentBroadcastId = null;
+});
+$('broadcast-status-refresh-btn').addEventListener('click', refreshBroadcastStatus);
 
 tryAutoLogin();
