@@ -33,7 +33,7 @@ messaging.onBackgroundMessage((payload) => {
   });
 });
 
-const CACHE_NAME = 'ds102-shell-v16';
+const CACHE_NAME = 'ds102-shell-v20';
 const SHELL_FILES = [
   './',
   './index.html',
