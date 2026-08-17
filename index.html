@@ -206,7 +206,37 @@
     <button id="recalc-btn" class="tool-btn">חשב מחדש</button>
     <button id="clear-month-btn" class="tool-btn tool-btn-danger">נקה חודש</button>
   </nav>
+
+  <nav id="shortcuts-bar" class="bottom-tools hidden"></nav>
 </section>
+
+<!-- ===================== מודאל: הוספת קיצור דרך ===================== -->
+<div id="add-shortcut-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>הוסף קיצור דרך</h2>
+      <button class="icon-btn" id="close-add-shortcut-modal">✕</button>
+    </div>
+    <div id="add-shortcut-options"></div>
+  </div>
+</div>
+
+<!-- ===================== מודאל: קריאה עם אישור קריאה ===================== -->
+<div id="confirmable-broadcast-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>קריאה עם אישור קריאה</h2>
+      <button class="icon-btn" id="close-confirmable-broadcast-modal">✕</button>
+    </div>
+    <label class="field-label">נמענים</label>
+    <select id="confirmable-broadcast-targets" class="text-input" multiple size="6"></select>
+    <textarea id="confirmable-broadcast-text" class="text-input" rows="3" placeholder="תוכן ההודעה"></textarea>
+    <div id="confirmable-broadcast-error" class="error-msg hidden"></div>
+    <div class="modal-actions">
+      <button id="confirmable-broadcast-send-btn" class="btn btn-primary">שגר</button>
+    </div>
+  </div>
+</div>
 
 <!-- ===================== מסך ניהול מערכת (מנהל בלבד) ===================== -->
 <section id="screen-admin" class="screen hidden">
@@ -346,6 +376,7 @@
     <div id="shift-team-bulk-bar" class="hidden" style="position:sticky;top:0;z-index:5;background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span id="shift-team-selected-count" style="font-weight:700;font-size:13px">0 נבחרו</span>
       <button id="shift-team-urgent-btn" class="tool-btn" style="width:auto;padding:6px 14px;border-color:var(--danger);color:var(--danger);font-weight:700">🚒🚨 הקפץ קריאת פתע</button>
+      <button id="shift-team-sign-btn" class="tool-btn" style="width:auto;padding:6px 14px;border-color:var(--brand);color:var(--brand);font-weight:700">✍️ חתימת דוח שעות</button>
       <button id="shift-team-clear-selection-btn" class="tool-btn" style="width:auto;padding:6px 12px;color:var(--text-muted)">נקה בחירה</button>
     </div>
     <div id="shift-team-list"></div>
