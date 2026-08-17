@@ -229,15 +229,16 @@ $('admin-login-form').addEventListener('submit', async (e) => {
       errBox.classList.remove('hidden');
       return;
     }
-    if (!result.isAdmin) {
-      errBox.textContent = 'הקוד הזה אינו קוד מנהל';
+    if (!result.isHr) {
+      errBox.textContent = 'הקוד הזה אינו קוד HR';
       errBox.classList.remove('hidden');
       return;
     }
-    enterApp(result.code || code, result.name, true);
+    enterApp(result.code || code, result.name, result.isAdmin, result.isManager, result.shiftTeam);
     $('admin-login-modal').classList.add('hidden');
     showScreen('screen-admin');
     loadAdminUsers();
+    loadOpenAlerts();
   } catch (err) {
     errBox.textContent = err.message || 'שגיאה בהתחברות';
     errBox.classList.remove('hidden');
@@ -587,8 +588,7 @@ $('close-admin-message-modal').addEventListener('click', () => {
 // הוספת מנהל/ת צוות חדש/ה (למשל ליסה)
 // ---------------------------------------------------------------------
 $('admin-add-manager-btn').addEventListener('click', () => {
-  $('new-manager-first').value = '';
-  $('new-manager-last').value = '';
+  $('new-manager-name').value = '';
   $('new-manager-email').value = '';
   $('add-manager-error').classList.add('hidden');
   $('add-manager-result').classList.add('hidden');
@@ -599,8 +599,7 @@ $('close-add-manager-modal').addEventListener('click', () => {
   loadAdminUsers(); // אולי נוצר בהצלחה - נרענן את הרשימה
 });
 $('add-manager-submit-btn').addEventListener('click', async () => {
-  const firstName = $('new-manager-first').value.trim();
-  const lastName = $('new-manager-last').value.trim();
+  const displayName = $('new-manager-name').value.trim();
   const email = $('new-manager-email').value.trim();
   const role = $('new-manager-role').value;
   const errBox = $('add-manager-error');
@@ -609,7 +608,7 @@ $('add-manager-submit-btn').addEventListener('click', async () => {
   resultBox.classList.add('hidden');
   try {
     const res = await callApi('POST', 'adminCreateManagerAccount', {
-      adminCode: state.code, firstName, lastName, email, role
+      adminCode: state.code, displayName, email, role
     });
     resultBox.textContent = res.success
       ? `נוצר בהצלחה! הקוד האישי: ${res.code} (נשלח גם למייל)`
