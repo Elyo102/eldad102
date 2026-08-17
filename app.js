@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v35';
+const APP_VERSION = 'v36';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -196,13 +196,14 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
   $('team-btn').classList.toggle('hidden', !state.isManager);
   $('shift-team-btn').classList.toggle('hidden', !state.shiftTeam);
   // HR לא מדווחת/מתקנת/מוחקת משמרות - אין לה בכלל לשונית משמרות
-  // בגיליון, אז כלים אלה לא רלוונטיים לה בכלל.
+  // בגיליון, אז כל אזור החודש (ניווט, סך שעות, אישור דוח) לא רלוונטי.
   $('add-shift-btn').classList.toggle('hidden', state.isHr);
   document.querySelector('.bottom-tools').classList.toggle('hidden', state.isHr);
+  $('month-section-hr-hidden').classList.toggle('hidden', state.isHr);
   const now = new Date();
   state.currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   showScreen('screen-app');
-  refreshMonth();
+  if (!state.isHr) refreshMonth(); // ל-HR אין לשונית משמרות בכלל - אין מה למשוך
   loadPersonalAlerts();
   flushOfflineQueue();
   renderShortcutsBar();
@@ -1030,10 +1031,12 @@ function formatDocDate(iso) {
 }
 
 $('prev-month').addEventListener('click', () => {
+  if (state.isHr) return;
   state.currentMonth = new Date(state.currentMonth.getFullYear(), state.currentMonth.getMonth() - 1, 1);
   refreshMonth();
 });
 $('next-month').addEventListener('click', () => {
+  if (state.isHr) return;
   state.currentMonth = new Date(state.currentMonth.getFullYear(), state.currentMonth.getMonth() + 1, 1);
   refreshMonth();
 });
@@ -1652,10 +1655,9 @@ document.addEventListener('click', async (e) => {
   if (deleteBtn) {
     if (!confirm(`למחוק את "${deleteBtn.dataset.name}"? לא ניתן לשחזר.`)) return;
     try {
-      const res = await callApi('POST', 'deleteMyDocument', {
+      await callApi('POST', 'deleteMyDocument', {
         code: state.code, fileName: deleteBtn.dataset.name, direction: deleteBtn.dataset.direction
       });
-      showToast(res.message || 'המסמך נמחק');
       loadMyDocuments();
     } catch (err) {
       showToast(err.message || 'שגיאה במחיקת המסמך');
