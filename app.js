@@ -361,6 +361,7 @@ function relativeLoginLabel(iso) {
   return { label: 'לפני ' + days + ' ימים', dot: 'gray' };
 }
 
+let cachedAdminUsersList = [];
 async function loadAdminUsers() {
   const list = $('admin-users-list');
   const empty = $('admin-empty');
@@ -368,6 +369,7 @@ async function loadAdminUsers() {
   try {
     const result = await callApi('GET', 'adminListUsers', { code: state.code });
     const users = result.users || [];
+    cachedAdminUsersList = users;
     if (users.length === 0) {
       empty.classList.remove('hidden');
       return;
@@ -403,7 +405,7 @@ function renderAdminUserCard(u) {
         `).join('')}
       </div>
       <div style="font-size:12.5px;color:var(--text-muted);margin-top:3px">
-        קוד: ${u.code ? escapeHtml(u.code) : '••••'} · ${rel.label} · ${hoursLabel} שעות החודש
+        קוד: ${u.codeHidden ? '••••' : escapeHtml(u.code)} · ${rel.label} · ${hoursLabel} שעות החודש
       </div>
       <div style="font-size:12.5px;margin-top:2px;color:${isActive ? 'var(--success)' : 'var(--danger)'}">
         ${isActive ? 'פעיל' : 'לא פעיל'} ${u.isHr ? '· HR' : (u.isManager ? '· מנהל/ת צוות' : '')} ${u.shiftTeam ? '· ' + u.shiftTeam : ''} ${u.messagingBlocked ? '· חסום משליחת הודעות' : ''}
@@ -411,16 +413,16 @@ function renderAdminUserCard(u) {
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
       ${(u.isAdmin || !state.isAdmin) ? '' : `<button class="tool-btn admin-toggle-btn" data-code="${escapeHtml(u.code)}" data-status="${isActive ? 'פעיל' : 'לא פעיל'}" style="width:auto;padding:6px 12px">${isActive ? 'השבת' : 'הפעל'}</button>`}
-      ${u.code ? `<button class="tool-btn admin-resend-btn" data-code="${escapeHtml(u.code)}" style="width:auto;padding:6px 12px">שלח קוד</button>` : ''}
-      ${u.code ? `<button class="tool-btn admin-message-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">שלח הודעה</button>` : ''}
+      ${u.codeHidden ? '' : `<button class="tool-btn admin-resend-btn" data-code="${escapeHtml(u.code)}" style="width:auto;padding:6px 12px">שלח קוד</button>`}
+      <button class="tool-btn admin-message-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">שלח הודעה</button>
       ${u.isAdmin ? '' : `<button class="tool-btn admin-block-msg-btn" data-code="${escapeHtml(u.code)}" data-blocked="${u.messagingBlocked ? '1' : '0'}" style="width:auto;padding:6px 12px${u.messagingBlocked ? ';color:var(--danger)' : ''}">${u.messagingBlocked ? 'בטל חסימת הודעות' : 'חסום הודעות'}</button>`}
       ${(u.isAdmin || !state.isAdmin) ? '' : `
         <button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-role="manager" style="width:auto;padding:6px 12px${u.role === 'manager' ? ';font-weight:700' : ''}">מנהל/ת צוות</button>
         <button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-role="hr" style="width:auto;padding:6px 12px${u.role === 'hr' ? ';font-weight:700' : ''}">HR</button>
         ${u.role ? `<button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-role="" style="width:auto;padding:6px 12px;color:var(--text-muted)">הסר תפקיד</button>` : ''}
       `}
-      ${u.code ? `<button class="tool-btn admin-docs-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">מסמכים</button>` : ''}
-      ${u.code ? `<button class="tool-btn admin-reminder-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">תזכורת</button>` : ''}
+      <button class="tool-btn admin-docs-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">מסמכים</button>
+      ${u.codeHidden ? '' : `<button class="tool-btn admin-reminder-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">תזכורת</button>`}
     </div>
   `;
   return card;
@@ -1756,26 +1758,67 @@ $('send-doc-submit-btn').addEventListener('click', async () => {
 $('admin-upload-procedure-btn').addEventListener('click', () => {
   $('procedure-file-input').value = '';
   $('upload-procedure-error').classList.add('hidden');
+  $('procedure-recipient-select').value = 'all';
+  $('procedure-specific-user-select').classList.add('hidden');
+
+  // אכלוס רשימת המשתמשים הספציפיים מתוך המטמון שכבר נטען למסך הניהול
+  const userSelect = $('procedure-specific-user-select');
+  userSelect.innerHTML = '';
+  cachedAdminUsersList.filter(u => !u.isAdmin).forEach(u => {
+    const opt = document.createElement('option');
+    opt.value = u.code;
+    opt.textContent = u.name + (u.shiftTeam ? ' (' + u.shiftTeam + ')' : '');
+    userSelect.appendChild(opt);
+  });
+
   $('upload-procedure-modal').classList.remove('hidden');
+});
+$('procedure-recipient-select').addEventListener('change', () => {
+  $('procedure-specific-user-select').classList.toggle('hidden', $('procedure-recipient-select').value !== 'specific');
 });
 $('close-upload-procedure-modal').addEventListener('click', () => $('upload-procedure-modal').classList.add('hidden'));
 $('upload-procedure-submit-btn').addEventListener('click', async () => {
   const file = $('procedure-file-input').files[0];
   const errBox = $('upload-procedure-error');
+  const recipientType = $('procedure-recipient-select').value;
   if (!file) {
     errBox.textContent = 'יש לבחור קובץ';
     errBox.classList.remove('hidden');
     return;
   }
+
+  let confirmMsg, targetCode = null, targetName = '';
+  if (recipientType === 'specific') {
+    const sel = $('procedure-specific-user-select');
+    targetCode = sel.value;
+    targetName = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : '';
+    if (!targetCode) {
+      errBox.textContent = 'יש לבחור משתמש/ת מהרשימה';
+      errBox.classList.remove('hidden');
+      return;
+    }
+    confirmMsg = `לשלוח את "${file.name}" אל ${targetName}?`;
+  } else {
+    confirmMsg = `לשלוח את "${file.name}" בתפוצה לכל הכבאים?`;
+  }
+  if (!confirm(confirmMsg)) return;
+
   try {
     const fileBase64 = await fileToBase64(file);
-    const res = await callApi('POST', 'adminUploadProcedure', {
-      adminCode: state.code, fileBase64, fileName: file.name, mimeType: file.type
-    });
-    showToast(res.message || 'הנוהל הועלה');
+    let res;
+    if (recipientType === 'specific') {
+      res = await callApi('POST', 'adminUploadDocumentToUser', {
+        adminCode: state.code, targetCode, fileBase64, fileName: file.name, mimeType: file.type
+      });
+    } else {
+      res = await callApi('POST', 'adminUploadProcedure', {
+        adminCode: state.code, fileBase64, fileName: file.name, mimeType: file.type
+      });
+    }
+    showToast(res.message || 'הועלה בהצלחה');
     $('upload-procedure-modal').classList.add('hidden');
   } catch (err) {
-    errBox.textContent = err.message || 'שגיאה בהעלאת הנוהל';
+    errBox.textContent = err.message || 'שגיאה בהעלאה';
     errBox.classList.remove('hidden');
   }
 });
