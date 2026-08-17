@@ -378,13 +378,13 @@ function renderAdminUserCard(u) {
     <div style="flex:1;min-width:200px">
       <div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:15px">
         <span style="width:9px;height:9px;border-radius:50%;background:${dotColor};display:inline-block"></span>
-        ${escapeHtml(u.name || '')} ${u.isAdmin ? '👑' : ''} ${u.isManager ? '🛡️' : ''} ${u.messagingBlocked ? '🚫' : ''}
+        ${escapeHtml(u.name || '')} ${u.isAdmin ? '👑' : ''} ${u.isHr ? '🩺' : (u.isManager ? '🛡️' : '')} ${u.messagingBlocked ? '🚫' : ''}
       </div>
       <div style="font-size:12.5px;color:var(--text-muted);margin-top:3px">
         קוד: ${escapeHtml(u.code)} · ${rel.label} · ${hoursLabel} שעות החודש
       </div>
       <div style="font-size:12.5px;margin-top:2px;color:${isActive ? 'var(--success)' : 'var(--danger)'}">
-        ${isActive ? 'פעיל' : 'לא פעיל'} ${u.isManager ? '· מנהל/ת צוות' : ''} ${u.messagingBlocked ? '· חסום משליחת הודעות' : ''}
+        ${isActive ? 'פעיל' : 'לא פעיל'} ${u.isHr ? '· HR' : (u.isManager ? '· מנהל/ת צוות' : '')} ${u.messagingBlocked ? '· חסום משליחת הודעות' : ''}
       </div>
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
@@ -392,7 +392,11 @@ function renderAdminUserCard(u) {
       <button class="tool-btn admin-resend-btn" data-code="${escapeHtml(u.code)}" style="width:auto;padding:6px 12px">שלח קוד</button>
       <button class="tool-btn admin-message-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">שלח הודעה</button>
       ${u.isAdmin ? '' : `<button class="tool-btn admin-block-msg-btn" data-code="${escapeHtml(u.code)}" data-blocked="${u.messagingBlocked ? '1' : '0'}" style="width:auto;padding:6px 12px${u.messagingBlocked ? ';color:var(--danger)' : ''}">${u.messagingBlocked ? 'בטל חסימת הודעות' : 'חסום הודעות'}</button>`}
-      ${(u.isAdmin || !state.isAdmin) ? '' : `<button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-manager="${u.isManager ? '1' : '0'}" style="width:auto;padding:6px 12px">${u.isManager ? 'הסר ניהול צוות' : 'הפוך למנהל/ת צוות'}</button>`}
+      ${(u.isAdmin || !state.isAdmin) ? '' : `
+        <button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-role="manager" style="width:auto;padding:6px 12px${u.role === 'manager' ? ';font-weight:700' : ''}">מנהל/ת צוות</button>
+        <button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-role="hr" style="width:auto;padding:6px 12px${u.role === 'hr' ? ';font-weight:700' : ''}">HR</button>
+        ${u.role ? `<button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-role="" style="width:auto;padding:6px 12px;color:var(--text-muted)">הסר תפקיד</button>` : ''}
+      `}
       <button class="tool-btn admin-docs-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">מסמכים</button>
       <button class="tool-btn admin-reminder-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">תזכורת</button>
     </div>
@@ -421,9 +425,9 @@ $('admin-users-list').addEventListener('click', async (e) => {
 
   if (roleBtn) {
     const code = roleBtn.dataset.code;
-    const makeManager = roleBtn.dataset.manager !== '1';
+    const role = roleBtn.dataset.role; // '', 'manager', 'hr'
     try {
-      const res = await callApi('POST', 'adminSetUserRole', { adminCode: state.code, targetCode: code, makeManager });
+      const res = await callApi('POST', 'adminSetUserRole', { adminCode: state.code, targetCode: code, role });
       showToast(res.message || 'התפקיד עודכן');
       loadAdminUsers();
     } catch (err) {
@@ -517,13 +521,14 @@ $('add-manager-submit-btn').addEventListener('click', async () => {
   const firstName = $('new-manager-first').value.trim();
   const lastName = $('new-manager-last').value.trim();
   const email = $('new-manager-email').value.trim();
+  const role = $('new-manager-role').value;
   const errBox = $('add-manager-error');
   const resultBox = $('add-manager-result');
   errBox.classList.add('hidden');
   resultBox.classList.add('hidden');
   try {
     const res = await callApi('POST', 'adminCreateManagerAccount', {
-      adminCode: state.code, firstName, lastName, email
+      adminCode: state.code, firstName, lastName, email, role
     });
     resultBox.textContent = res.success
       ? `נוצר בהצלחה! הקוד האישי: ${res.code} (נשלח גם למייל)`
@@ -1152,7 +1157,7 @@ async function loadMyDocuments() {
   }
 }
 
-function renderDocList(listEl, emptyEl, docs, allowSign) {
+function renderDocList(listEl, emptyEl, docs, allowSign, allowReject, rejectTargetCode) {
   listEl.innerHTML = '';
   if (docs.length === 0) {
     emptyEl.classList.remove('hidden');
@@ -1170,17 +1175,36 @@ function renderDocList(listEl, emptyEl, docs, allowSign) {
       <div style="display:flex;gap:6px">
         <button class="tool-btn doc-open-btn" data-url="${escapeHtml(d.url)}" style="width:auto;padding:8px 12px">פתח</button>
         ${allowSign ? `<button class="tool-btn doc-sign-btn" data-name="${escapeHtml(d.name)}" style="width:auto;padding:8px 12px">חתום</button>` : ''}
+        ${allowReject ? `<button class="tool-btn doc-reject-btn" data-code="${escapeHtml(rejectTargetCode)}" data-name="${escapeHtml(d.name)}" style="width:auto;padding:8px 12px;color:var(--danger)">דחה</button>` : ''}
       </div>
     `;
     listEl.appendChild(card);
   });
 }
 
-document.addEventListener('click', (e) => {
+document.addEventListener('click', async (e) => {
   const openBtn = e.target.closest('.doc-open-btn');
   if (openBtn) window.open(openBtn.dataset.url, '_blank');
   const signBtn = e.target.closest('.doc-sign-btn');
   if (signBtn) openSignatureModal(signBtn.dataset.name);
+  const rejectBtn = e.target.closest('.doc-reject-btn');
+  if (rejectBtn) {
+    const reason = prompt('הסבר לדחיית המסמך "' + rejectBtn.dataset.name + '" (יישלח לשולח):');
+    if (reason === null) return; // המשתמש ביטל
+    if (!reason.trim()) {
+      showToast('חובה לכתוב הסבר כדי לדחות מסמך');
+      return;
+    }
+    try {
+      const res = await callApi('POST', 'adminRejectDocument', {
+        adminCode: state.code, targetCode: rejectBtn.dataset.code, fileName: rejectBtn.dataset.name, reason
+      });
+      showToast(res.message || 'המסמך נדחה');
+      openUserDocsModal(userDocsTargetCode, $('user-docs-modal-title').textContent.replace('מסמכים - ', ''));
+    } catch (err) {
+      showToast(err.message || 'שגיאה בדחיית המסמך');
+    }
+  }
 });
 
 $('documents-btn').addEventListener('click', () => {
@@ -1334,8 +1358,8 @@ async function openUserDocsModal(code, name) {
   $('user-docs-modal').classList.remove('hidden');
   try {
     const result = await callApi('GET', 'adminListUserDocuments', { adminCode: state.code, targetCode: code });
-    renderDocList($('user-docs-from-employee'), $('user-docs-from-employee'), result.fromEmployee || [], false);
-    renderDocList($('user-docs-from-manager'), $('user-docs-from-manager'), result.fromManager || [], false);
+    renderDocList($('user-docs-from-employee'), $('user-docs-from-employee'), result.fromEmployee || [], false, true, code);
+    renderDocList($('user-docs-from-manager'), $('user-docs-from-manager'), result.fromManager || [], false, false, null);
   } catch (err) {
     showToast(err.message || 'שגיאה בטעינת מסמכים');
   }
