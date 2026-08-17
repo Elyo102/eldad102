@@ -488,6 +488,24 @@
   </div>
 </div>
 
+<!-- ===================== מודאל: תעודת חתימה (מסמך + קראתי והבנתי + חתימה) ===================== -->
+<div id="signed-doc-view-modal" class="modal hidden">
+  <div class="modal-content" style="max-width:520px">
+    <div class="modal-header">
+      <h2 id="signed-doc-view-title">תעודת חתימה</h2>
+      <button class="icon-btn" id="close-signed-doc-view-modal">✕</button>
+    </div>
+    <div id="signed-doc-view-doc-container" style="border:1.5px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:14px"></div>
+    <div style="text-align:center;font-weight:700;font-size:16px;margin-bottom:8px">קראתי והבנתי</div>
+    <div style="border:1.5px solid var(--border);border-radius:10px;overflow:hidden;background:#fff">
+      <img id="signed-doc-view-signature" style="width:100%;display:block" alt="החתימה">
+    </div>
+    <div class="modal-actions">
+      <button id="signed-doc-view-open-original-btn" class="btn btn-install">פתח את המסמך המקורי בכרטיסייה נפרדת</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===================== מודאל: הוספת מנהל/ת צוות ===================== -->
 <div id="add-manager-modal" class="modal hidden">
   <div class="modal-content">
