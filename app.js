@@ -403,7 +403,7 @@ function renderAdminUserCard(u) {
         `).join('')}
       </div>
       <div style="font-size:12.5px;color:var(--text-muted);margin-top:3px">
-        קוד: ${escapeHtml(u.code)} · ${rel.label} · ${hoursLabel} שעות החודש
+        קוד: ${u.code ? escapeHtml(u.code) : '••••'} · ${rel.label} · ${hoursLabel} שעות החודש
       </div>
       <div style="font-size:12.5px;margin-top:2px;color:${isActive ? 'var(--success)' : 'var(--danger)'}">
         ${isActive ? 'פעיל' : 'לא פעיל'} ${u.isHr ? '· HR' : (u.isManager ? '· מנהל/ת צוות' : '')} ${u.shiftTeam ? '· ' + u.shiftTeam : ''} ${u.messagingBlocked ? '· חסום משליחת הודעות' : ''}
@@ -411,16 +411,16 @@ function renderAdminUserCard(u) {
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
       ${(u.isAdmin || !state.isAdmin) ? '' : `<button class="tool-btn admin-toggle-btn" data-code="${escapeHtml(u.code)}" data-status="${isActive ? 'פעיל' : 'לא פעיל'}" style="width:auto;padding:6px 12px">${isActive ? 'השבת' : 'הפעל'}</button>`}
-      <button class="tool-btn admin-resend-btn" data-code="${escapeHtml(u.code)}" style="width:auto;padding:6px 12px">שלח קוד</button>
-      <button class="tool-btn admin-message-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">שלח הודעה</button>
+      ${u.code ? `<button class="tool-btn admin-resend-btn" data-code="${escapeHtml(u.code)}" style="width:auto;padding:6px 12px">שלח קוד</button>` : ''}
+      ${u.code ? `<button class="tool-btn admin-message-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">שלח הודעה</button>` : ''}
       ${u.isAdmin ? '' : `<button class="tool-btn admin-block-msg-btn" data-code="${escapeHtml(u.code)}" data-blocked="${u.messagingBlocked ? '1' : '0'}" style="width:auto;padding:6px 12px${u.messagingBlocked ? ';color:var(--danger)' : ''}">${u.messagingBlocked ? 'בטל חסימת הודעות' : 'חסום הודעות'}</button>`}
       ${(u.isAdmin || !state.isAdmin) ? '' : `
         <button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-role="manager" style="width:auto;padding:6px 12px${u.role === 'manager' ? ';font-weight:700' : ''}">מנהל/ת צוות</button>
         <button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-role="hr" style="width:auto;padding:6px 12px${u.role === 'hr' ? ';font-weight:700' : ''}">HR</button>
         ${u.role ? `<button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-role="" style="width:auto;padding:6px 12px;color:var(--text-muted)">הסר תפקיד</button>` : ''}
       `}
-      <button class="tool-btn admin-docs-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">מסמכים</button>
-      <button class="tool-btn admin-reminder-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">תזכורת</button>
+      ${u.code ? `<button class="tool-btn admin-docs-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">מסמכים</button>` : ''}
+      ${u.code ? `<button class="tool-btn admin-reminder-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">תזכורת</button>` : ''}
     </div>
   `;
   return card;
@@ -591,6 +591,8 @@ $('close-admin-message-modal').addEventListener('click', () => {
 $('admin-add-manager-btn').addEventListener('click', () => {
   $('new-manager-name').value = '';
   $('new-manager-email').value = '';
+  $('new-manager-phone').value = '';
+  $('new-manager-code').value = '';
   $('add-manager-error').classList.add('hidden');
   $('add-manager-result').classList.add('hidden');
   $('add-manager-modal').classList.remove('hidden');
@@ -602,6 +604,8 @@ $('close-add-manager-modal').addEventListener('click', () => {
 $('add-manager-submit-btn').addEventListener('click', async () => {
   const displayName = $('new-manager-name').value.trim();
   const email = $('new-manager-email').value.trim();
+  const phone = $('new-manager-phone').value.trim();
+  const customCode = $('new-manager-code').value.trim();
   const role = $('new-manager-role').value;
   const errBox = $('add-manager-error');
   const resultBox = $('add-manager-result');
@@ -609,7 +613,7 @@ $('add-manager-submit-btn').addEventListener('click', async () => {
   resultBox.classList.add('hidden');
   try {
     const res = await callApi('POST', 'adminCreateManagerAccount', {
-      adminCode: state.code, displayName, email, role
+      adminCode: state.code, displayName, email, role, phone, customCode
     });
     resultBox.textContent = res.success
       ? `נוצר בהצלחה! הקוד האישי: ${res.code} (נשלח גם למייל)`
@@ -693,13 +697,21 @@ async function loadShiftTeam() {
       const hoursLabel = (m.monthlyHours === null || m.monthlyHours === undefined) ? '—' : m.monthlyHours;
       const card = document.createElement('div');
       card.className = 'shift-card';
+      card.style.flexWrap = 'wrap';
       card.innerHTML = `
-        <div class="shift-details">
-          <div class="shift-type" style="display:flex;align-items:center;gap:6px">
-            <span style="width:8px;height:8px;border-radius:50%;background:${dotColor};display:inline-block"></span>
-            ${escapeHtml(m.name)}
+        <div class="shift-details" style="display:flex;align-items:flex-start;gap:8px;flex:1">
+          <input type="checkbox" class="shift-team-select-checkbox" data-code="${escapeHtml(m.code)}" ${shiftTeamSelectedCodes.has(m.code) ? 'checked' : ''} style="width:17px;height:17px;cursor:pointer;margin-top:3px">
+          <div>
+            <div class="shift-type" style="display:flex;align-items:center;gap:6px">
+              <span style="width:8px;height:8px;border-radius:50%;background:${dotColor};display:inline-block"></span>
+              ${escapeHtml(m.name)}
+            </div>
+            <div class="shift-time">${rel.label} · ${hoursLabel} שעות החודש · ${m.status === 'פעיל' ? 'פעיל' : 'לא פעיל'}</div>
           </div>
-          <div class="shift-time">${rel.label} · ${hoursLabel} שעות החודש · ${m.status === 'פעיל' ? 'פעיל' : 'לא פעיל'}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;width:100%">
+          <button class="tool-btn shift-team-message-btn" data-code="${escapeHtml(m.code)}" data-name="${escapeHtml(m.name)}" style="width:auto;padding:6px 12px">שלח הודעה</button>
+          <button class="tool-btn shift-team-docs-btn" data-code="${escapeHtml(m.code)}" data-name="${escapeHtml(m.name)}" style="width:auto;padding:6px 12px">מסמכים</button>
         </div>
       `;
       list.appendChild(card);
@@ -708,6 +720,76 @@ async function loadShiftTeam() {
     showToast(err.message || 'שגיאה בטעינת הצוות');
   }
 }
+
+// בחירה מרובה + הקפצת קריאת פתע במסך ניהול משמרת
+const shiftTeamSelectedCodes = new Set();
+function updateShiftTeamBulkBar() {
+  const bar = $('shift-team-bulk-bar');
+  const count = shiftTeamSelectedCodes.size;
+  $('shift-team-selected-count').textContent = count + ' נבחרו';
+  bar.classList.toggle('hidden', count === 0);
+}
+$('shift-team-list').addEventListener('change', (e) => {
+  const cb = e.target.closest('.shift-team-select-checkbox');
+  if (!cb) return;
+  if (cb.checked) shiftTeamSelectedCodes.add(cb.dataset.code);
+  else shiftTeamSelectedCodes.delete(cb.dataset.code);
+  updateShiftTeamBulkBar();
+});
+$('shift-team-clear-selection-btn').addEventListener('click', () => {
+  shiftTeamSelectedCodes.clear();
+  document.querySelectorAll('.shift-team-select-checkbox').forEach(cb => { cb.checked = false; });
+  updateShiftTeamBulkBar();
+});
+
+$('shift-team-list').addEventListener('click', (e) => {
+  const msgBtn = e.target.closest('.shift-team-message-btn');
+  if (msgBtn) {
+    teamMessageTarget = msgBtn.dataset.code;
+    $('team-message-modal-title').textContent = 'הודעה ל-' + msgBtn.dataset.name;
+    $('team-message-text').value = '';
+    $('team-message-error').classList.add('hidden');
+    $('team-message-modal').classList.remove('hidden');
+    return;
+  }
+  const docsBtn = e.target.closest('.shift-team-docs-btn');
+  if (docsBtn) {
+    openUserDocsModal(docsBtn.dataset.code, docsBtn.dataset.name);
+  }
+});
+
+$('shift-team-urgent-btn').addEventListener('click', () => {
+  if (shiftTeamSelectedCodes.size === 0) return;
+  $('urgent-alert-modal-title').textContent = '🚒🚨 הקפצת קריאת פתע (' + shiftTeamSelectedCodes.size + ' נבחרו)';
+  $('urgent-alert-text').value = '';
+  $('urgent-alert-error').classList.add('hidden');
+  $('urgent-alert-modal').classList.remove('hidden');
+});
+$('close-urgent-alert-modal').addEventListener('click', () => $('urgent-alert-modal').classList.add('hidden'));
+$('urgent-alert-send-btn').addEventListener('click', async () => {
+  const text = $('urgent-alert-text').value.trim();
+  const errBox = $('urgent-alert-error');
+  if (!text) {
+    errBox.textContent = 'יש להזין תוכן להודעה';
+    errBox.classList.remove('hidden');
+    return;
+  }
+  try {
+    const res = await callApi('POST', 'triggerUrgentCallAlert', {
+      fromCode: state.code, targetCodes: Array.from(shiftTeamSelectedCodes), message: text
+    });
+    showToast(res.message || 'הקריאה הוקפצה');
+    playSirenSound(); // גם אצל מי ששיגר - אישור שמיעתי שהפעולה בוצעה
+    $('urgent-alert-modal').classList.add('hidden');
+    shiftTeamSelectedCodes.clear();
+    updateShiftTeamBulkBar();
+    loadShiftTeam();
+  } catch (err) {
+    errBox.textContent = err.message || 'שגיאה בשיגור ההתראה';
+    errBox.classList.remove('hidden');
+  }
+});
+
 $('shift-team-btn').addEventListener('click', () => {
   showScreen('screen-shift-team');
   loadShiftTeam();
@@ -1338,6 +1420,41 @@ async function enablePushNotifications() {
 
 $('enable-push-btn').addEventListener('click', enablePushNotifications);
 
+// ---------------------------------------------------------------------
+// צליל סירנה (Web Audio API, מסונתז - לא קובץ שמע חיצוני) - "כבאית":
+// תדר עולה ויורד בלולאה, גבוה וצורם. חשוב: זה עובד רק כשהאפליקציה
+// פתוחה בפועל (בזמן אמת, או ברגע שפותחים אותה ורואים התראה אישית
+// ממתינה) - דפדפנים לא מאפשרים צליל מותאם אישית בהתראות רקע כשהאפליקציה
+// סגורה לגמרי, זו מגבלה של הדפדפן עצמו ולא ניתן לעקוף אותה.
+let sirenAudioCtx = null;
+function playSirenSound(durationMs = 4000) {
+  try {
+    if (!sirenAudioCtx) sirenAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = sirenAudioCtx;
+    if (ctx.state === 'suspended') ctx.resume();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    gain.gain.value = 0.4;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    const startTime = ctx.currentTime;
+    const endTime = startTime + durationMs / 1000;
+    let t = startTime;
+    while (t < endTime) {
+      osc.frequency.setValueAtTime(500, t);
+      osc.frequency.linearRampToValueAtTime(1200, t + 0.5);
+      osc.frequency.linearRampToValueAtTime(500, t + 1.0);
+      t += 1.0;
+    }
+    osc.start(startTime);
+    osc.stop(endTime);
+  } catch (e) {
+    // דפדפן שלא תומך ב-Web Audio, או שהמשתמש עוד לא "אישר" אינטראקציה
+    // בעמוד (חלק מהדפדפנים חוסמים צליל אוטומטי לפני קליק ראשון) - לא קריטי
+  }
+}
+
 // כשההודעה מגיעה בזמן שהאפליקציה פתוחה וברקע (לא סגורה) - מציגים Toast
 // במקום להסתמך רק על התראת המערכת (שגם תופיע, דרך ה-Service Worker)
 document.addEventListener('DOMContentLoaded', () => {
@@ -1347,6 +1464,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const title = payload.notification && payload.notification.title;
       const body = payload.notification && payload.notification.body;
       showToast((title ? title + ': ' : '') + (body || ''));
+      if (payload.data && payload.data.urgent === 'true') {
+        playSirenSound();
+      }
     });
   }
 });
@@ -1720,6 +1840,8 @@ $('confirm-month-btn').addEventListener('click', async () => {
 // ---------------------------------------------------------------------
 // התראות אישיות (לכל משתמש - למשל "קיבלת מסמך מליסה")
 // ---------------------------------------------------------------------
+const sirenPlayedAlertIds = new Set(); // בתוך הסשן הנוכחי בלבד - לא לחזור על אותה סירנה שוב ושוב
+
 async function loadPersonalAlerts() {
   const section = $('personal-alerts-section');
   const list = $('personal-alerts-list');
@@ -1733,6 +1855,15 @@ async function loadPersonalAlerts() {
     }
     section.classList.remove('hidden');
     alerts.forEach(a => {
+      // התראות "קריאת פתע" מתחילות בתגית 🚒🚨 (ראה triggerUrgentCallAlert
+      // בשרת) - אם זו התראה כזו שעדיין לא השמענו עליה סירנה בסשן הזה,
+      // מפעילים אותה עכשיו. זה בדיוק המקרה של "פספסתי את ה-Push, אבל
+      // ברגע שפתחתי את האפליקציה זה מיד מצפצף".
+      const isUrgent = (a.title || '').indexOf('🚒🚨') === 0;
+      if (isUrgent && !sirenPlayedAlertIds.has(a.id)) {
+        sirenPlayedAlertIds.add(a.id);
+        playSirenSound();
+      }
       const card = document.createElement('div');
       card.className = 'alert-card';
       card.innerHTML = `
