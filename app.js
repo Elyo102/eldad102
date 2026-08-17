@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v40';
+const APP_VERSION = 'v41';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -916,15 +916,16 @@ async function refreshMonth() {
   $('month-label').textContent = `${MONTH_NAMES[state.currentMonth.getMonth()]} ${state.currentMonth.getFullYear()}`;
 
   try {
-    const [shifts, totalRes] = await Promise.all([
-      callApi('GET', 'listShifts', { code: state.code, monthKey }),
-      callApi('GET', 'getMonthlyTotal', { code: state.code, mKey: monthKey })
-    ]);
+    // בעבר: שתי בקשות נפרדות לשרת (listShifts + getMonthlyTotal). listShifts
+    // כבר מחזירה hours לכל דיווח, אז מחשבים את הסכום כאן בצד הלקוח -
+    // חוסך בקשה שלמה לשרת בכל טעינת מסך/מעבר חודש.
+    const shifts = await callApi('GET', 'listShifts', { code: state.code, monthKey });
     state.shifts = Array.isArray(shifts) ? shifts : (shifts.shifts || []);
     state.shifts.sort((a, b) => (a.dateStr || '').localeCompare(b.dateStr || ''));
     renderShifts();
     renderStatsBreakdown();
-    $('month-total').textContent = (totalRes.totalHours ?? 0);
+    const total = state.shifts.reduce((sum, s) => sum + (Number(s.hours) || 0), 0);
+    $('month-total').textContent = Math.round(total * 100) / 100;
   } catch (err) {
     showToast(err.message || 'שגיאה בטעינת החודש');
   }
