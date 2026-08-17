@@ -26,14 +26,17 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
   const title = (payload.notification && payload.notification.title) || 'דוח נוכחות כבאים';
   const body = (payload.notification && payload.notification.body) || '';
+  const isUrgent = payload.data && payload.data.urgent === 'true';
   self.registration.showNotification(title, {
     body: body,
     icon: './icons/icon-192.png',
-    badge: './icons/icon-192.png'
+    badge: './icons/icon-192.png',
+    requireInteraction: isUrgent, // התראה דחופה נשארת על המסך עד שנוגעים בה
+    vibrate: isUrgent ? [300, 150, 300, 150, 300, 150, 600] : undefined
   });
 });
 
-const CACHE_NAME = 'ds102-shell-v24';
+const CACHE_NAME = 'ds102-shell-v25';
 const SHELL_FILES = [
   './',
   './index.html',
