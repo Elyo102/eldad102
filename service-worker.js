@@ -27,16 +27,21 @@ messaging.onBackgroundMessage((payload) => {
   const title = (payload.notification && payload.notification.title) || 'דוח נוכחות כבאים';
   const body = (payload.notification && payload.notification.body) || '';
   const isUrgent = payload.data && payload.data.urgent === 'true';
+  // תג ייחודי מבוסס תוכן ההתראה - אם אותה התראה בדיוק מגיעה פעמיים
+  // (למשל בגלל כמה טאבים פתוחים של האפליקציה בו-זמנית), הדפדפן
+  // מחליף את ההתראה הקיימת במקום להציג שתי התראות נפרדות.
+  const notificationTag = (title + '|' + body).slice(0, 100);
   self.registration.showNotification(title, {
     body: body,
     icon: './icons/icon-192.png',
     badge: './icons/icon-192.png',
+    tag: notificationTag,
     requireInteraction: isUrgent, // התראה דחופה נשארת על המסך עד שנוגעים בה
     vibrate: isUrgent ? [300, 150, 300, 150, 300, 150, 600] : undefined
   });
 });
 
-const CACHE_NAME = 'ds102-shell-v37';
+const CACHE_NAME = 'ds102-shell-v38';
 const SHELL_FILES = [
   './',
   './index.html',
