@@ -1479,8 +1479,8 @@ document.addEventListener('DOMContentLoaded', () => {
 async function loadMyDocuments() {
   try {
     const result = await callApi('GET', 'listUserDocuments', { code: state.code });
-    renderDocList($('docs-to-me-list'), $('docs-to-me-empty'), result.toMe || [], true);
-    renderDocList($('docs-from-me-list'), $('docs-from-me-empty'), result.fromMe || [], false);
+    renderDocList($('docs-to-me-list'), $('docs-to-me-empty'), result.toMe || [], true, false, null, true, 'toMe');
+    renderDocList($('docs-from-me-list'), $('docs-from-me-empty'), result.fromMe || [], false, false, null, true, 'fromMe');
   } catch (err) {
     showToast(err.message || 'שגיאה בטעינת המסמכים');
   }
@@ -1511,7 +1511,7 @@ async function loadMyDocuments() {
   }
 }
 
-function renderDocList(listEl, emptyEl, docs, allowSign, allowReject, rejectTargetCode) {
+function renderDocList(listEl, emptyEl, docs, allowSign, allowReject, rejectTargetCode, allowDelete, deleteDirection) {
   listEl.innerHTML = '';
   if (docs.length === 0) {
     emptyEl.classList.remove('hidden');
@@ -1530,6 +1530,7 @@ function renderDocList(listEl, emptyEl, docs, allowSign, allowReject, rejectTarg
         <button class="tool-btn doc-open-btn" data-url="${escapeHtml(d.url)}" style="width:auto;padding:8px 12px">פתח</button>
         ${allowSign ? `<button class="tool-btn doc-sign-btn" data-name="${escapeHtml(d.name)}" style="width:auto;padding:8px 12px">חתום</button>` : ''}
         ${allowReject ? `<button class="tool-btn doc-reject-btn" data-code="${escapeHtml(rejectTargetCode)}" data-name="${escapeHtml(d.name)}" style="width:auto;padding:8px 12px;color:var(--danger)">דחה</button>` : ''}
+        ${allowDelete ? `<button class="tool-btn doc-delete-btn" data-name="${escapeHtml(d.name)}" data-direction="${deleteDirection}" style="width:auto;padding:8px 12px;color:var(--danger)">מחק</button>` : ''}
       </div>
     `;
     listEl.appendChild(card);
@@ -1557,6 +1558,19 @@ document.addEventListener('click', async (e) => {
       openUserDocsModal(userDocsTargetCode, $('user-docs-modal-title').textContent.replace('מסמכים - ', ''));
     } catch (err) {
       showToast(err.message || 'שגיאה בדחיית המסמך');
+    }
+  }
+  const deleteBtn = e.target.closest('.doc-delete-btn');
+  if (deleteBtn) {
+    if (!confirm(`למחוק את "${deleteBtn.dataset.name}"? לא ניתן לשחזר.`)) return;
+    try {
+      const res = await callApi('POST', 'deleteMyDocument', {
+        code: state.code, fileName: deleteBtn.dataset.name, direction: deleteBtn.dataset.direction
+      });
+      showToast(res.message || 'המסמך נמחק');
+      loadMyDocuments();
+    } catch (err) {
+      showToast(err.message || 'שגיאה במחיקת המסמך');
     }
   }
 });
@@ -1918,29 +1932,58 @@ $('confirm-month-btn').addEventListener('click', async () => {
 // ---------------------------------------------------------------------
 const sirenPlayedAlertIds = new Set(); // בתוך הסשן הנוכחי בלבד - לא לחזור על אותה סירנה שוב ושוב
 
+const toastedAlertIds = new Set(); // בתוך הסשן הנוכחי - כדי לא להציג את אותה "חלונית" שוב ושוב
+
+function renderAlertCard(a) {
+  const card = document.createElement('div');
+  card.className = 'alert-card';
+  card.innerHTML = `
+    <div style="font-weight:700;color:var(--danger)">${escapeHtml(a.title)}</div>
+    <div style="font-size:13px;margin-top:3px">${escapeHtml(a.body || '')}</div>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      ${a.linkUrl ? `<button class="tool-btn personal-alert-open-btn" data-url="${escapeHtml(a.linkUrl)}" style="width:auto;padding:6px 12px">פתח</button>` : ''}
+      <button class="tool-btn personal-alert-handled-btn" data-id="${escapeHtml(a.id)}" style="width:auto;padding:6px 12px">סמן כטופל</button>
+    </div>
+  `;
+  return card;
+}
+
 async function loadPersonalAlerts() {
   const section = $('personal-alerts-section');
   const list = $('personal-alerts-list');
+  const adminSection = $('admin-personal-alerts-section');
+  const adminList = $('admin-personal-alerts-list');
   try {
     const result = await callApi('GET', 'listMyPersonalAlerts', { code: state.code });
     const alerts = result.alerts || [];
 
-    // באדג' על כפתור 📁 - כמה מההתראות הפתוחות הן ספציפית "מסמך חדש"
+    // באדג' חיווי - גם על 📁 (מסמכים) וגם על ⚙ (ניהול, ל-HR/מנהלים)
     const docAlertsCount = alerts.filter(a => (a.title || '').indexOf('📄') === 0).length;
-    const badge = $('documents-badge');
+    const docsBadge = $('documents-badge');
     if (docAlertsCount > 0) {
-      badge.textContent = docAlertsCount > 9 ? '9+' : String(docAlertsCount);
-      badge.classList.remove('hidden');
+      docsBadge.textContent = docAlertsCount > 9 ? '9+' : String(docAlertsCount);
+      docsBadge.classList.remove('hidden');
     } else {
-      badge.classList.add('hidden');
+      docsBadge.classList.add('hidden');
+    }
+    const adminBadge = $('admin-alerts-badge');
+    if (alerts.length > 0) {
+      adminBadge.textContent = alerts.length > 9 ? '9+' : String(alerts.length);
+      adminBadge.classList.remove('hidden');
+    } else {
+      adminBadge.classList.add('hidden');
     }
 
     list.innerHTML = '';
+    adminList.innerHTML = '';
     if (alerts.length === 0) {
       section.classList.add('hidden');
+      adminSection.classList.add('hidden');
       return;
     }
     section.classList.remove('hidden');
+    adminSection.classList.remove('hidden');
+
     alerts.forEach(a => {
       // התראות "קריאת פתע" מתחילות בתגית 🚒🚨 (ראה triggerUrgentCallAlert
       // בשרת) - אם זו התראה כזו שעדיין לא השמענו עליה סירנה בסשן הזה,
@@ -1951,36 +1994,31 @@ async function loadPersonalAlerts() {
         sirenPlayedAlertIds.add(a.id);
         playSirenSound();
       }
-      const card = document.createElement('div');
-      card.className = 'alert-card';
-      card.innerHTML = `
-        <div style="font-weight:700;color:var(--danger)">${escapeHtml(a.title)}</div>
-        <div style="font-size:13px;margin-top:3px">${escapeHtml(a.body || '')}</div>
-        <div style="display:flex;gap:6px;margin-top:8px">
-          ${a.linkUrl ? `<button class="tool-btn personal-alert-open-btn" data-url="${escapeHtml(a.linkUrl)}" style="width:auto;padding:6px 12px">פתח</button>` : ''}
-          <button class="tool-btn personal-alert-handled-btn" data-id="${escapeHtml(a.id)}" style="width:auto;padding:6px 12px">סמן כטופל</button>
-        </div>
-      `;
-      list.appendChild(card);
+      // "חלונית" (Toast) בנוסף לכרטיס הקבוע - פעם אחת בלבד לכל התראה בסשן
+      if (!toastedAlertIds.has(a.id)) {
+        toastedAlertIds.add(a.id);
+        showToast(a.title + (a.body ? ' - ' + a.body : ''));
+      }
+      list.appendChild(renderAlertCard(a));
+      adminList.appendChild(renderAlertCard(a));
     });
   } catch (err) {
     // כשל בטעינת התראות אישיות לא אמור להציג שגיאה בולטת - זה לא קריטי
   }
 }
 
-$('personal-alerts-list').addEventListener('click', async (e) => {
+function handlePersonalAlertsClick(e) {
   const openBtn = e.target.closest('.personal-alert-open-btn');
   if (openBtn) window.open(openBtn.dataset.url, '_blank');
 
   const handledBtn = e.target.closest('.personal-alert-handled-btn');
   if (handledBtn) {
-    try {
-      await callApi('POST', 'markPersonalAlertHandled', { code: state.code, alertId: handledBtn.dataset.id });
-      loadPersonalAlerts();
-    } catch (err) {
-      showToast(err.message || 'שגיאה בעדכון ההתראה');
-    }
+    callApi('POST', 'markPersonalAlertHandled', { code: state.code, alertId: handledBtn.dataset.id })
+      .then(() => loadPersonalAlerts())
+      .catch(err => showToast(err.message || 'שגיאה בעדכון ההתראה'));
   }
-});
+}
+$('personal-alerts-list').addEventListener('click', handlePersonalAlertsClick);
+$('admin-personal-alerts-list').addEventListener('click', handlePersonalAlertsClick);
 
 tryAutoLogin();
