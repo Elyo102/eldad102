@@ -271,13 +271,19 @@
 <div id="upload-procedure-modal" class="modal hidden">
   <div class="modal-content">
     <div class="modal-header">
-      <h2>העלאת נוהל</h2>
+      <h2>העלאת מסמך/נוהל</h2>
       <button class="icon-btn" id="close-upload-procedure-modal">✕</button>
     </div>
+    <label class="field-label">שלח אל</label>
+    <select id="procedure-recipient-select" class="text-input">
+      <option value="all">תפוצה לכולם (נוהל כללי)</option>
+      <option value="specific">משתמש/ת ספציפי/ת</option>
+    </select>
+    <select id="procedure-specific-user-select" class="text-input hidden"></select>
     <input type="file" id="procedure-file-input" class="text-input" accept="image/*,.pdf">
     <div id="upload-procedure-error" class="error-msg hidden"></div>
     <div class="modal-actions">
-      <button id="upload-procedure-submit-btn" class="btn btn-primary">העלה נוהל</button>
+      <button id="upload-procedure-submit-btn" class="btn btn-primary">העלה</button>
     </div>
   </div>
 </div>
