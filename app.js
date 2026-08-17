@@ -1482,6 +1482,31 @@ async function loadMyDocuments() {
   } catch (err) {
     showToast(err.message || 'שגיאה בטעינת המסמכים');
   }
+  try {
+    const logResult = await callApi('GET', 'listMyDocumentSendLog', { code: state.code });
+    const logList = $('doc-send-log-list');
+    const logEmpty = $('doc-send-log-empty');
+    logList.innerHTML = '';
+    const log = logResult.log || [];
+    if (log.length === 0) {
+      logEmpty.classList.remove('hidden');
+    } else {
+      logEmpty.classList.add('hidden');
+      log.forEach(entry => {
+        const row = document.createElement('div');
+        row.className = 'shift-card';
+        row.innerHTML = `
+          <div class="shift-details">
+            <div class="shift-type">${escapeHtml(entry.fileName)}</div>
+            <div class="shift-time">אל ${escapeHtml(entry.recipientName || '')} · ${new Date(entry.sentAt).toLocaleString('he-IL')}</div>
+          </div>
+        `;
+        logList.appendChild(row);
+      });
+    }
+  } catch (err) {
+    // כשל בטעינת הלוג לא קריטי - לא מציגים שגיאה בולטת
+  }
 }
 
 function renderDocList(listEl, emptyEl, docs, allowSign, allowReject, rejectTargetCode) {
@@ -1543,24 +1568,30 @@ $('documents-back-btn').addEventListener('click', () => showScreen('screen-app')
 $('upload-doc-btn').addEventListener('click', () => {
   $('doc-file-input').value = '';
   $('upload-doc-error').classList.add('hidden');
+  const commanderOption = $('doc-recipient-select').querySelector('option[value="commander"]');
+  if (commanderOption) commanderOption.disabled = !state.shiftTeam;
+  $('doc-recipient-select').value = 'hr';
   $('upload-doc-modal').classList.remove('hidden');
 });
 $('close-upload-doc-modal').addEventListener('click', () => $('upload-doc-modal').classList.add('hidden'));
 $('upload-doc-submit-btn').addEventListener('click', async () => {
   const file = $('doc-file-input').files[0];
   const docType = $('doc-type-select').value;
+  const recipientType = $('doc-recipient-select').value;
   const errBox = $('upload-doc-error');
   if (!file) {
     errBox.textContent = 'יש לבחור קובץ';
     errBox.classList.remove('hidden');
     return;
   }
+  const recipientLabel = recipientType === 'commander' ? 'מפקד/ת המשמרת שלך' : 'HR (ליסה)';
+  if (!confirm(`לשלוח את "${file.name}" אל ${recipientLabel}?`)) return;
   try {
     const fileBase64 = await fileToBase64(file);
     const res = await callApi('POST', 'uploadUserDocument', {
-      code: state.code, docType, fileBase64, fileName: file.name, mimeType: file.type
+      code: state.code, docType, fileBase64, fileName: file.name, mimeType: file.type, recipientType
     });
-    showToast(res.message || 'המסמך הועלה');
+    showToast(res.message || 'המסמך הועלה בהצלחה');
     $('upload-doc-modal').classList.add('hidden');
     loadMyDocuments();
   } catch (err) {
@@ -1706,14 +1737,16 @@ $('send-doc-submit-btn').addEventListener('click', async () => {
     errBox.classList.remove('hidden');
     return;
   }
+  const targetName = $('user-docs-modal-title').textContent.replace('מסמכים - ', '');
+  if (!confirm(`לשלוח את "${file.name}" אל ${targetName}?`)) return;
   try {
     const fileBase64 = await fileToBase64(file);
     const res = await callApi('POST', 'adminUploadDocumentToUser', {
       adminCode: state.code, targetCode: userDocsTargetCode, fileBase64, fileName: file.name, mimeType: file.type
     });
-    showToast(res.message || 'הקובץ נשלח');
+    showToast(res.message || 'הקובץ נשלח בהצלחה');
     $('send-doc-modal').classList.add('hidden');
-    openUserDocsModal(userDocsTargetCode, $('user-docs-modal-title').textContent.replace('מסמכים - ', ''));
+    openUserDocsModal(userDocsTargetCode, targetName);
   } catch (err) {
     errBox.textContent = err.message || 'שגיאה בשליחת הקובץ';
     errBox.classList.remove('hidden');
@@ -1848,6 +1881,17 @@ async function loadPersonalAlerts() {
   try {
     const result = await callApi('GET', 'listMyPersonalAlerts', { code: state.code });
     const alerts = result.alerts || [];
+
+    // באדג' על כפתור 📁 - כמה מההתראות הפתוחות הן ספציפית "מסמך חדש"
+    const docAlertsCount = alerts.filter(a => (a.title || '').indexOf('📄') === 0).length;
+    const badge = $('documents-badge');
+    if (docAlertsCount > 0) {
+      badge.textContent = docAlertsCount > 9 ? '9+' : String(docAlertsCount);
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+
     list.innerHTML = '';
     if (alerts.length === 0) {
       section.classList.add('hidden');
