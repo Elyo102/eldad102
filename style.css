@@ -35,6 +35,14 @@ html, body {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* קריאה נוחה ממרחק של מטר-מטר וחצי במסך מחשב, בלי לפגוע בפריסת המובייל */
+@media (min-width: 700px) {
+  html, body { font-size: 19px; }
+  .stats-card-title { font-size: 16px !important; }
+  .shift-type { font-size: 19px !important; }
+  .shift-time { font-size: 16px !important; }
+}
+
 .hidden { display: none !important; }
 
 @keyframes fadeInScreen { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
