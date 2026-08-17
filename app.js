@@ -1471,4 +1471,19 @@ $('open-alerts-list').addEventListener('click', async (e) => {
 // ---------------------------------------------------------------------
 // המראה
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// אישור דוח שעות חודשי (כבאי)
+// ---------------------------------------------------------------------
+$('confirm-month-btn').addEventListener('click', async () => {
+  const monthKey = monthKeyOf(state.currentMonth);
+  const label = `${MONTH_NAMES[state.currentMonth.getMonth()]} ${state.currentMonth.getFullYear()}`;
+  if (!confirm(`לאשר שדוח השעות לחודש ${label} תקין? לאחר האישור ייווצר דוח סופי ולא ניתן לבטל את האישור.`)) return;
+  try {
+    const res = await callApi('POST', 'submitMonthlyConfirmation', { code: state.code, monthKey });
+    showToast(res.message || 'הדוח אושר בהצלחה');
+  } catch (err) {
+    showToast(err.message || 'שגיאה באישור הדוח');
+  }
+});
+
 tryAutoLogin();
