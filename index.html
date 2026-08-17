@@ -155,6 +155,7 @@
         <button id="procedures-btn" class="icon-btn" title="נהלים">📋</button>
         <button id="team-btn" class="icon-btn hidden" title="צוות ניהול">👥</button>
         <button id="shift-team-btn" class="icon-btn hidden" title="ניהול משמרת">🚒</button>
+        <button id="calendar-btn" class="icon-btn hidden" title="יומן אירועים">📅</button>
         <button id="admin-btn" class="icon-btn hidden" title="ניהול מערכת" style="position:relative">
           ⚙
           <span id="admin-alerts-badge" class="hidden" style="position:absolute;top:-4px;left:-4px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;border-radius:50%;min-width:16px;height:16px;display:flex;align-items:center;justify-content:center;padding:0 3px">0</span>
@@ -433,6 +434,66 @@
     <div id="doc-send-log-empty" class="empty-state hidden">אין עדיין שליחות רשומות</div>
   </main>
 </section>
+
+<!-- ===================== מסך יומן אירועים (מנהל/ת) ===================== -->
+<section id="screen-calendar" class="screen hidden">
+  <header class="app-header">
+    <div class="header-top">
+      <div class="user-info"><span>📅 יומן אירועים</span></div>
+      <div class="header-actions">
+        <button id="calendar-back-btn" class="icon-btn" title="חזרה">חזרה</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:8px">
+        <button id="calendar-prev-month" class="icon-btn">›</button>
+        <div id="calendar-month-label" style="font-weight:700;font-size:16px;min-width:110px;text-align:center">-</div>
+        <button id="calendar-next-month" class="icon-btn">‹</button>
+      </div>
+      <select id="calendar-category-filter" class="text-input" style="width:auto;min-width:140px">
+        <option value="">כל הקטגוריות</option>
+      </select>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <button id="calendar-add-event-btn" class="btn btn-primary" style="flex:1;min-width:160px">+ הוסף אירוע</button>
+      <button id="calendar-distribute-btn" class="btn btn-install hidden" style="flex:1;min-width:160px">📤 הפץ יומן לצוות</button>
+    </div>
+
+    <div id="calendar-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>
+    <div id="calendar-day-names" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:6px;font-size:11px;font-weight:700;color:var(--text-muted);text-align:center"></div>
+
+    <div id="calendar-day-events-list" style="margin-top:18px"></div>
+  </main>
+</section>
+
+<!-- ===================== מודאל: הוספת אירוע ליומן ===================== -->
+<div id="add-event-modal" class="modal hidden">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>הוספת אירוע</h2>
+      <button class="icon-btn" id="close-add-event-modal">✕</button>
+    </div>
+    <input type="text" id="event-title-input" class="text-input" placeholder="כותרת האירוע (למשל: תרגיל שריפה)">
+    <label class="field-label">תאריך ושעה</label>
+    <input type="datetime-local" id="event-datetime-input" class="text-input">
+    <label class="field-label">קטגוריה</label>
+    <select id="event-category-input" class="text-input"></select>
+    <label class="field-label">תזכורת מוקדמת (אופציונלי - אפשר לסמן כמה)</label>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px"><input type="checkbox" class="event-reminder-checkbox" value="7"> שבוע לפני</label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px"><input type="checkbox" class="event-reminder-checkbox" value="30"> חודש לפני</label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px"><input type="checkbox" class="event-reminder-checkbox" value="60"> חודשיים לפני</label>
+    </div>
+    <div id="add-event-error" class="error-msg hidden"></div>
+    <div class="modal-actions">
+      <button id="add-event-submit-btn" class="btn btn-primary">הוסף לוח שנה</button>
+    </div>
+  </div>
+</div>
 
 <!-- ===================== מסך נהלים (כבאי) ===================== -->
 <section id="screen-procedures" class="screen hidden">
