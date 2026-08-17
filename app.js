@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v33';
+const APP_VERSION = 'v34';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -2128,8 +2128,12 @@ function handlePersonalAlertsClick(e) {
   const handledBtn = e.target.closest('.personal-alert-handled-btn');
   if (handledBtn) {
     callApi('POST', 'markPersonalAlertHandled', { code: state.code, alertId: handledBtn.dataset.id })
-      .then(() => loadPersonalAlerts())
-      .catch(err => showToast(err.message || 'שגיאה בעדכון ההתראה'));
+      .then(res => {
+        // חיווי אבחון זמני - מראה בדיוק מה השרת החזיר, ישירות על המסך
+        showToast('תגובת שרת: ' + JSON.stringify(res), 8000);
+        return loadPersonalAlerts();
+      })
+      .catch(err => showToast('שגיאה: ' + (err.message || 'לא ידוע')));
   }
 }
 $('personal-alerts-list').addEventListener('click', handlePersonalAlertsClick);
