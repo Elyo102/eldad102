@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v43';
+const APP_VERSION = 'v44';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -203,7 +203,10 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
   $('month-section-hr-hidden').classList.toggle('hidden', state.isHr);
   const now = new Date();
   state.currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  if (state.isHr) {
+  // בדיקה מפורשת - רק HR אמיתי (לא מנהל-על, לא ראש משמרת) מנותב ישר
+  // למסך הניהול עם היומן. isHr חייב להיות true במפורש (לא רק truthy).
+  const isTrulyHr = state.isHr === true && !state.isAdmin;
+  if (isTrulyHr) {
     // HR נכנסת ישר למסך הניהול - שם היומן והבועות פרוסים ישירות,
     // בלי צורך ללחוץ על אייקון כלשהו קודם.
     showScreen('screen-admin');
