@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v31';
+const APP_VERSION = 'v32';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -205,6 +205,7 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
   refreshMonth();
   loadPersonalAlerts();
   flushOfflineQueue();
+  renderShortcutsBar();
 }
 
 $('login-form').addEventListener('submit', async (e) => {
@@ -810,6 +811,15 @@ $('urgent-alert-send-btn').addEventListener('click', async () => {
     errBox.textContent = err.message || 'שגיאה בשיגור ההתראה';
     errBox.classList.remove('hidden');
   }
+});
+
+// חתימת דוח שעות מרוכזת - ראש/סגן משמרת חותם/ת בבת אחת על כל מי
+// שנבחר, בעזרת אותו פאנל חתימה (Canvas) שכבר קיים לכבאי הבודד
+let signatureMode = 'personal'; // 'personal' (חתימה על מסמך עצמי) | 'commander' (חתימת ראש משמרת לצוות)
+$('shift-team-sign-btn').addEventListener('click', () => {
+  if (shiftTeamSelectedCodes.size === 0) return;
+  signatureMode = 'commander';
+  openSignatureModal(shiftTeamSelectedCodes.size + ' עובדים - דוח שעות');
 });
 
 $('shift-team-btn').addEventListener('click', () => {
@@ -1731,11 +1741,22 @@ $('signature-save-btn').addEventListener('click', async () => {
   const dataUrl = canvas.toDataURL('image/png');
   const base64 = dataUrl.split(',')[1];
   try {
-    const res = await callApi('POST', 'submitDocumentSignature', {
-      code: state.code, fileName: signatureDocName, signatureBase64: base64
-    });
+    let res;
+    if (signatureMode === 'commander') {
+      res = await callApi('POST', 'commanderSignHourReports', {
+        commanderCode: state.code, targetCodes: Array.from(shiftTeamSelectedCodes), signatureBase64: base64
+      });
+      shiftTeamSelectedCodes.clear();
+      updateShiftTeamBulkBar();
+      loadShiftTeam();
+    } else {
+      res = await callApi('POST', 'submitDocumentSignature', {
+        code: state.code, fileName: signatureDocName, signatureBase64: base64
+      });
+    }
     showToast(res.message || 'החתימה נשמרה');
     $('signature-modal').classList.add('hidden');
+    signatureMode = 'personal'; // איפוס לברירת המחדל
   } catch (err) {
     showToast(err.message || 'שגיאה בשמירת החתימה');
   }
@@ -1957,11 +1978,14 @@ const toastedAlertIds = new Set(); // בתוך הסשן הנוכחי - כדי ל
 function renderAlertCard(a) {
   const card = document.createElement('div');
   card.className = 'alert-card';
+  const isConfirmable = (a.linkUrl || '').indexOf('confirmable:') === 0;
+  const broadcastId = isConfirmable ? a.linkUrl.replace('confirmable:', '') : null;
   card.innerHTML = `
     <div style="font-weight:700;color:var(--danger)">${escapeHtml(a.title)}</div>
     <div style="font-size:13px;margin-top:3px">${escapeHtml(a.body || '')}</div>
     <div style="display:flex;gap:6px;margin-top:8px">
-      ${a.linkUrl ? `<button class="tool-btn personal-alert-open-btn" data-url="${escapeHtml(a.linkUrl)}" style="width:auto;padding:6px 12px">פתח</button>` : ''}
+      ${isConfirmable ? `<button class="tool-btn broadcast-confirm-btn" data-broadcast-id="${escapeHtml(broadcastId)}" data-alert-id="${escapeHtml(a.id)}" style="width:auto;padding:6px 12px;font-weight:700">קראתי ואישרתי</button>` : ''}
+      ${(a.linkUrl && !isConfirmable) ? `<button class="tool-btn personal-alert-open-btn" data-url="${escapeHtml(a.linkUrl)}" style="width:auto;padding:6px 12px">פתח</button>` : ''}
       <button class="tool-btn personal-alert-handled-btn" data-id="${escapeHtml(a.id)}" style="width:auto;padding:6px 12px">סמן כטופל</button>
     </div>
   `;
@@ -2031,6 +2055,18 @@ function handlePersonalAlertsClick(e) {
   const openBtn = e.target.closest('.personal-alert-open-btn');
   if (openBtn) window.open(openBtn.dataset.url, '_blank');
 
+  const confirmBtn = e.target.closest('.broadcast-confirm-btn');
+  if (confirmBtn) {
+    callApi('POST', 'confirmBroadcastRead', { code: state.code, broadcastId: confirmBtn.dataset.broadcastId })
+      .then(() => callApi('POST', 'markPersonalAlertHandled', { code: state.code, alertId: confirmBtn.dataset.alertId }))
+      .then(() => {
+        showToast('האישור נשמר');
+        loadPersonalAlerts();
+      })
+      .catch(err => showToast(err.message || 'שגיאה באישור הקריאה'));
+    return;
+  }
+
   const handledBtn = e.target.closest('.personal-alert-handled-btn');
   if (handledBtn) {
     callApi('POST', 'markPersonalAlertHandled', { code: state.code, alertId: handledBtn.dataset.id })
@@ -2040,5 +2076,144 @@ function handlePersonalAlertsClick(e) {
 }
 $('personal-alerts-list').addEventListener('click', handlePersonalAlertsClick);
 $('admin-personal-alerts-list').addEventListener('click', handlePersonalAlertsClick);
+
+// ---------------------------------------------------------------------
+// קיצורי דרך ניתנים להתאמה אישית (HR / ראשי משמרות)
+// ---------------------------------------------------------------------
+const AVAILABLE_SHORTCUTS = [
+  { id: 'broadcast_all', label: '📢 הודעה לכולם' },
+  { id: 'add_manager', label: '👤 הוסף מנהל/ת צוות' },
+  { id: 'upload_procedure', label: '📋 העלאת נוהל/מסמך' },
+  { id: 'confirmable_broadcast', label: '✅ קריאה עם אישור קריאה' }
+];
+
+function getMyShortcuts() {
+  try {
+    return JSON.parse(localStorage.getItem('ds102_shortcuts_' + state.code) || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+function saveMyShortcuts(ids) {
+  localStorage.setItem('ds102_shortcuts_' + state.code, JSON.stringify(ids));
+}
+
+function renderShortcutsBar() {
+  const bar = $('shortcuts-bar');
+  if (!state.isManager) {
+    bar.classList.add('hidden');
+    return;
+  }
+  const myIds = getMyShortcuts();
+  bar.innerHTML = '';
+  myIds.forEach(id => {
+    const def = AVAILABLE_SHORTCUTS.find(s => s.id === id);
+    if (!def) return;
+    const btn = document.createElement('button');
+    btn.className = 'tool-btn';
+    btn.textContent = def.label;
+    btn.addEventListener('click', () => triggerShortcut(id));
+    bar.appendChild(btn);
+  });
+  const addBtn = document.createElement('button');
+  addBtn.className = 'tool-btn';
+  addBtn.textContent = '+ הוסף קיצור דרך';
+  addBtn.addEventListener('click', openAddShortcutModal);
+  bar.appendChild(addBtn);
+  bar.classList.remove('hidden');
+}
+
+function openAddShortcutModal() {
+  const container = $('add-shortcut-options');
+  const myIds = getMyShortcuts();
+  container.innerHTML = '';
+  const available = AVAILABLE_SHORTCUTS.filter(s => myIds.indexOf(s.id) === -1);
+  if (available.length === 0) {
+    container.innerHTML = '<div class="empty-state">כל קיצורי הדרך הזמינים כבר נוספו</div>';
+  } else {
+    available.forEach(s => {
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-install';
+      btn.style.marginBottom = '8px';
+      btn.style.width = '100%';
+      btn.textContent = s.label;
+      btn.addEventListener('click', () => {
+        const ids = getMyShortcuts();
+        ids.push(s.id);
+        saveMyShortcuts(ids);
+        $('add-shortcut-modal').classList.add('hidden');
+        renderShortcutsBar();
+      });
+      container.appendChild(btn);
+    });
+  }
+  $('add-shortcut-modal').classList.remove('hidden');
+}
+$('close-add-shortcut-modal').addEventListener('click', () => $('add-shortcut-modal').classList.add('hidden'));
+
+function triggerShortcut(id) {
+  if (id === 'broadcast_all') {
+    adminMessageTarget = null;
+    $('admin-message-modal-title').textContent = 'הודעה לכולם';
+    $('admin-message-text').value = '';
+    $('admin-message-error').classList.add('hidden');
+    $('admin-message-modal').classList.remove('hidden');
+  } else if (id === 'add_manager') {
+    $('admin-add-manager-btn').click();
+  } else if (id === 'upload_procedure') {
+    $('admin-upload-procedure-btn').click();
+  } else if (id === 'confirmable_broadcast') {
+    openConfirmableBroadcastModal();
+  }
+}
+
+// ---------------------------------------------------------------------
+// קריאה עם אישור קריאה
+// ---------------------------------------------------------------------
+async function openConfirmableBroadcastModal() {
+  const sel = $('confirmable-broadcast-targets');
+  sel.innerHTML = '';
+  try {
+    const result = await callApi('GET', 'adminListUsers', { code: state.code });
+    (result.users || []).filter(u => !u.isAdmin).forEach(u => {
+      const opt = document.createElement('option');
+      opt.value = u.code;
+      opt.textContent = u.name;
+      sel.appendChild(opt);
+    });
+  } catch (err) {
+    showToast(err.message || 'שגיאה בטעינת רשימת המשתמשים');
+  }
+  $('confirmable-broadcast-text').value = '';
+  $('confirmable-broadcast-error').classList.add('hidden');
+  $('confirmable-broadcast-modal').classList.remove('hidden');
+}
+$('close-confirmable-broadcast-modal').addEventListener('click', () => $('confirmable-broadcast-modal').classList.add('hidden'));
+$('confirmable-broadcast-send-btn').addEventListener('click', async () => {
+  const sel = $('confirmable-broadcast-targets');
+  const targetCodes = Array.from(sel.selectedOptions).map(o => o.value);
+  const text = $('confirmable-broadcast-text').value.trim();
+  const errBox = $('confirmable-broadcast-error');
+  if (targetCodes.length === 0) {
+    errBox.textContent = 'יש לבחור לפחות נמען אחד';
+    errBox.classList.remove('hidden');
+    return;
+  }
+  if (!text) {
+    errBox.textContent = 'יש להזין תוכן להודעה';
+    errBox.classList.remove('hidden');
+    return;
+  }
+  try {
+    const res = await callApi('POST', 'sendConfirmableBroadcast', {
+      fromCode: state.code, targetCodes, message: text
+    });
+    showToast(res.message || 'השידור נשלח');
+    $('confirmable-broadcast-modal').classList.add('hidden');
+  } catch (err) {
+    errBox.textContent = err.message || 'שגיאה בשיגור';
+    errBox.classList.remove('hidden');
+  }
+});
 
 tryAutoLogin();
