@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v45';
+const APP_VERSION = 'v46';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -1890,11 +1890,11 @@ $('user-docs-email-clear-btn').addEventListener('click', () => {
   document.querySelectorAll('.doc-email-select-checkbox').forEach(cb => { cb.checked = false; });
   updateDocEmailBar();
 });
-$('user-docs-email-send-btn').addEventListener('click', async () => {
+async function sendSelectedDocsByEmail(sendToHr) {
   if (docEmailSelectedUrls.size === 0) return;
   try {
     const res = await callApi('POST', 'emailDocumentsToMe', {
-      code: state.code, fileUrls: Array.from(docEmailSelectedUrls)
+      code: state.code, fileUrls: Array.from(docEmailSelectedUrls), sendToHr
     });
     showToast(res.message || 'נשלח בהצלחה');
     docEmailSelectedUrls.clear();
@@ -1903,6 +1903,15 @@ $('user-docs-email-send-btn').addEventListener('click', async () => {
   } catch (err) {
     showToast(err.message || 'שגיאה בשליחה למייל');
   }
+}
+$('user-docs-email-send-btn').addEventListener('click', () => sendSelectedDocsByEmail(false));
+$('user-docs-email-send-hr-btn').addEventListener('click', () => sendSelectedDocsByEmail(true));
+$('user-docs-select-all-btn').addEventListener('click', () => {
+  document.querySelectorAll('.doc-email-select-checkbox').forEach(cb => {
+    cb.checked = true;
+    docEmailSelectedUrls.add(cb.dataset.url);
+  });
+  updateDocEmailBar();
 });
 
 $('user-docs-send-btn').addEventListener('click', () => {
@@ -2212,7 +2221,7 @@ const AVAILABLE_SHORTCUTS = [
   { id: 'broadcast_all', label: '📢 הודעה לכולם' },
   { id: 'add_manager', label: '👤 הוסף מנהל/ת צוות' },
   { id: 'upload_procedure', label: '📋 העלאת נוהל/מסמך' },
-  { id: 'confirmable_broadcast', label: '✅ קריאה עם אישור קריאה' }
+  { id: 'confirmable_broadcast', label: '✅ קרא וחתום' }
 ];
 
 function getMyShortcuts() {
@@ -2435,9 +2444,9 @@ function renderCalendarGridInto(prefix) {
     const dayEvents = filtered.filter(e => e.eventDate && e.eventDate.indexOf(dateStr) === 0);
 
     const cell = document.createElement('div');
-    cell.style.cssText = 'min-height:56px;border:1px solid var(--border);border-radius:8px;padding:4px;cursor:pointer;background:#fff' + (dateStr === todayStr ? ';border-color:var(--brand);border-width:2px' : '');
+    cell.style.cssText = 'min-height:78px;border:1px solid var(--border);border-radius:8px;padding:6px;cursor:pointer;background:#fff' + (dateStr === todayStr ? ';border-color:var(--brand);border-width:2px' : '');
     cell.innerHTML = `
-      <div style="font-size:12px;font-weight:700;text-align:center">${d}</div>
+      <div style="font-size:22px;font-weight:800;text-align:center">${d}</div>
       <div style="display:flex;flex-direction:column;gap:2px;margin-top:2px">
         ${dayEvents.slice(0, 2).map(e => `<div style="background:${e.color};color:#fff;border-radius:4px;padding:1px 3px;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.icon}</div>`).join('')}
         ${dayEvents.length > 2 ? `<div style="font-size:9px;color:var(--text-muted)">+${dayEvents.length - 2}</div>` : ''}
