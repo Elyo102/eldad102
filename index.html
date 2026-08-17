@@ -228,7 +228,7 @@
 <div id="confirmable-broadcast-modal" class="modal hidden">
   <div class="modal-content">
     <div class="modal-header">
-      <h2>קריאה עם אישור קריאה</h2>
+      <h2>קרא וחתום</h2>
       <button class="icon-btn" id="close-confirmable-broadcast-modal">✕</button>
     </div>
     <label class="field-label">נמענים</label>
@@ -287,7 +287,7 @@
 
     <div id="dash-calendar-card" style="background:#fff;border-radius:16px;box-shadow:0 2px 14px rgba(0,0,0,0.08);padding:18px;margin-bottom:18px">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
-        <div style="font-weight:800;font-size:18px;display:flex;align-items:center;gap:6px">📅 <span id="dash-calendar-title-label">יומן אירועים</span></div>
+        <div style="font-weight:800;font-size:32px;display:flex;align-items:center;gap:8px">📅 <span id="dash-calendar-title-label">יומן אירועים</span></div>
         <div style="display:flex;align-items:center;gap:6px">
           <button id="dash-calendar-add-btn" class="btn btn-primary" style="width:auto;padding:8px 16px;font-size:13px">+ הוספת אירוע</button>
           <select id="dash-calendar-category-filter" class="text-input" style="width:auto;min-width:120px;padding:8px 10px;font-size:13px">
@@ -297,10 +297,10 @@
       </div>
       <div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:10px">
         <button id="dash-calendar-prev-month" class="icon-btn" style="background:#f4f3f1;color:#333">›</button>
-        <div id="dash-calendar-month-label" style="font-weight:700;font-size:15px;min-width:110px;text-align:center">-</div>
+        <div id="dash-calendar-month-label" style="font-weight:800;font-size:28px;min-width:160px;text-align:center">-</div>
         <button id="dash-calendar-next-month" class="icon-btn" style="background:#f4f3f1;color:#333">‹</button>
       </div>
-      <div id="dash-calendar-day-names" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:6px;font-size:11px;font-weight:700;color:var(--text-muted);text-align:center"></div>
+      <div id="dash-calendar-day-names" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:6px;font-size:17px;font-weight:700;color:var(--text-muted);text-align:center"></div>
       <div id="dash-calendar-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>
       <button id="dash-calendar-distribute-btn" class="btn btn-install hidden" style="width:100%;margin-top:14px">📤 הפץ יומן לצוות</button>
       <div id="dash-calendar-day-events-list" style="margin-top:14px"></div>
@@ -341,7 +341,9 @@
     <button id="user-docs-send-btn" class="btn btn-primary" style="margin-bottom:14px">שליחת קובץ למשתמש</button>
     <div id="user-docs-email-bar" class="hidden" style="background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span id="user-docs-email-count" style="font-weight:700;font-size:13px">0 נבחרו</span>
+      <button id="user-docs-select-all-btn" class="tool-btn" style="width:auto;padding:6px 12px">בחר הכל</button>
       <button id="user-docs-email-send-btn" class="tool-btn" style="width:auto;padding:6px 14px;border-color:var(--brand);color:var(--brand);font-weight:700">📧 שלח לי למייל</button>
+      <button id="user-docs-email-send-hr-btn" class="tool-btn" style="width:auto;padding:6px 14px;border-color:var(--brand);color:var(--brand);font-weight:700">📧 שלח ל-HR</button>
       <button id="user-docs-email-clear-btn" class="tool-btn" style="width:auto;padding:6px 12px;color:var(--text-muted)">נקה בחירה</button>
     </div>
     <div class="stats-card-title" style="margin-bottom:6px">מסמכים שהעובד/ת שלח/ה</div>
@@ -503,7 +505,7 @@
     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:8px">
         <button id="calendar-prev-month" class="icon-btn">›</button>
-        <div id="calendar-month-label" style="font-weight:700;font-size:16px;min-width:110px;text-align:center">-</div>
+        <div id="calendar-month-label" style="font-weight:800;font-size:28px;min-width:160px;text-align:center">-</div>
         <button id="calendar-next-month" class="icon-btn">‹</button>
       </div>
       <select id="calendar-category-filter" class="text-input" style="width:auto;min-width:140px">
@@ -517,7 +519,7 @@
     </div>
 
     <div id="calendar-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>
-    <div id="calendar-day-names" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:6px;font-size:11px;font-weight:700;color:var(--text-muted);text-align:center"></div>
+    <div id="calendar-day-names" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:6px;font-size:17px;font-weight:700;color:var(--text-muted);text-align:center"></div>
 
     <div id="calendar-day-events-list" style="margin-top:18px"></div>
   </main>
