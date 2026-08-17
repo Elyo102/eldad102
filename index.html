@@ -149,6 +149,7 @@
         <button id="documents-btn" class="icon-btn" title="המסמכים שלי">📁</button>
         <button id="procedures-btn" class="icon-btn" title="נהלים">📋</button>
         <button id="team-btn" class="icon-btn hidden" title="צוות ניהול">👥</button>
+        <button id="shift-team-btn" class="icon-btn hidden" title="ניהול משמרת">🚒</button>
         <button id="admin-btn" class="icon-btn hidden" title="ניהול מערכת">⚙</button>
         <button id="logout-btn" class="icon-btn" title="יציאה">יציאה</button>
       </div>
@@ -179,6 +180,9 @@
   </header>
 
   <main class="app-main">
+    <div id="personal-alerts-section" class="hidden" style="margin-bottom:14px">
+      <div id="personal-alerts-list"></div>
+    </div>
     <div id="stats-breakdown" class="stats-card hidden">
       <div class="stats-card-title">פירוט החודש לפי סוג יום</div>
       <div id="stats-breakdown-rows"></div>
@@ -297,6 +301,23 @@
   <main class="app-main">
     <div id="team-list"></div>
     <div id="team-empty" class="empty-state hidden">אין עוד חברי צוות ניהול רשומים</div>
+  </main>
+</section>
+
+<!-- ===================== מסך ניהול משמרת (מפקד/סגן משמרת) ===================== -->
+<section id="screen-shift-team" class="screen hidden">
+  <header class="app-header">
+    <div class="header-top">
+      <div class="user-info"><span id="shift-team-title">ניהול משמרת</span></div>
+      <div class="header-actions">
+        <button id="shift-team-back-btn" class="icon-btn" title="חזרה">חזרה</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <div id="shift-team-list"></div>
+    <div id="shift-team-empty" class="empty-state hidden">לא נמצאו חברי צוות</div>
   </main>
 </section>
 
