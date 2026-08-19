@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v66';
+const APP_VERSION = 'v67';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -503,6 +503,7 @@ function renderAdminUserCard(u) {
       ${(u.isAdmin || !state.isAdmin) ? '' : `
         <button class="tool-btn admin-position-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" data-position="${escapeHtml(u.position || '')}" style="width:auto;padding:6px 12px${u.position ? ';font-weight:700' : ''}">${u.position ? escapeHtml(u.position) : 'הגדר תפקיד'}</button>
         <button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-role="hr" style="width:auto;padding:6px 12px${u.role === 'hr' ? ';font-weight:700' : ''}">HR</button>
+        <button class="tool-btn admin-perms-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px${(u.perms && u.perms.length) ? ';font-weight:700;color:var(--brand)' : ''}">הרשאות</button>
         ${u.role === 'hr' ? `<button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-role="" style="width:auto;padding:6px 12px;color:var(--text-muted)">הסר HR</button>` : ''}
       `}
       <button class="tool-btn admin-docs-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">מסמכים</button>
@@ -2352,19 +2353,37 @@ $('admin-personal-alerts-list').addEventListener('click', handlePersonalAlertsCl
 // ---------------------------------------------------------------------
 // קיצורי דרך ניתנים להתאמה אישית (HR / ראשי משמרות)
 // ---------------------------------------------------------------------
+// כל קיצור נושא את תנאי ההרשאה שלו. 'all' = כולם, 'manager' = ראש
+// משמרת או סגנו, 'hr' = ליסה, 'admin' = מנהל-על. תפקיד שאינו ברשימה
+// פשוט לא רואה את הקיצור, גם אם ניסה להוסיף אותו בעבר.
 const AVAILABLE_SHORTCUTS = [
-  { id: 'broadcast_all', label: '📢 הודעה לכולם' },
-  { id: 'add_manager', label: '👤 הוסף מנהל/ת צוות' },
-  { id: 'upload_procedure', label: '📋 העלאת נוהל/מסמך' },
-  { id: 'confirmable_broadcast', label: '✅ קרא וחתום' },
-  { id: 'missed_punch', label: '📝 דוחות אי החתמה' },
-  { id: 'create_missed_punch', label: '⚠️ פתיחת דוח אי החתמה' },
-  { id: 'sign_hour_reports', label: '✍️ חתימת דוחות שעות' },
-  { id: 'commander_swaps', label: '🔄 החלפות משמרת לאישור' },
-  { id: 'guard_calendar', label: '🛡️ יומן אבטחות אירועים' },
-  { id: 'urgent_call', label: '🚒🚨 קריאת פתע' },
-  { id: 'commander_vacations', label: '🏖️ בקשות חופש לאישור' }
+  { id: 'missed_punch_mine',   label: 'דוחות אי החתמה',        who: ['all'] },
+  { id: 'manual_shift',        label: 'דיווח שעות ידני',        who: ['all'] },
+  { id: 'create_missed_punch', label: 'פתיחת דוח אי החתמה',    who: ['hr', 'admin'] },
+  { id: 'broadcast_all',       label: 'הודעה לכולם',           who: ['manager', 'hr', 'admin'] },
+  { id: 'send_documents',      label: 'שליחת מסמכים',          who: ['manager', 'hr', 'admin'] },
+  { id: 'urgent_call',         label: 'קריאת פתע',             who: ['manager', 'hr', 'admin'] },
+  { id: 'sign_hour_reports',   label: 'חתימת דוחות שעות',      who: ['manager', 'hr', 'admin'] },
+  { id: 'missed_punch',        label: 'אישור דוחות אי החתמה',  who: ['manager', 'admin'] },
+  { id: 'commander_swaps',     label: 'אישור החלפות משמרת',    who: ['manager', 'admin'] },
+  { id: 'commander_vacations', label: 'אישור בקשות חופש',      who: ['manager', 'admin'] },
+  { id: 'guard_calendar',      label: 'יומן אבטחות אירועים',   who: ['manager', 'admin', 'perm:guard_manager'] }
 ];
+
+// האם למשתמש הנוכחי מותר לראות קיצור מסוים
+function canUseShortcut(def) {
+  if (!def || !def.who) return false;
+  return def.who.some(function (w) {
+    if (w === 'all') return true;
+    if (w === 'admin') return state.isAdmin === true;
+    if (w === 'hr') return state.isHr === true;
+    if (w === 'manager') return state.isManager === true;
+    if (w.indexOf('perm:') === 0) {
+      return (myPerms || []).indexOf(w.slice(5)) !== -1;
+    }
+    return false;
+  });
+}
 
 function getMyShortcuts() {
   try {
@@ -5170,17 +5189,17 @@ nav.bottom-tools:not(#shortcuts-bar) .tool-btn i {
 //  מיפוי קיצור לאייקון
 // ---------------------------------------------------------------------
 const SC_ICONS = {
-  broadcast_all: 'ti-speakerphone',
-  add_manager: 'ti-user-plus',
-  upload_procedure: 'ti-file-upload',
-  confirmable_broadcast: 'ti-checkbox',
-  missed_punch: 'ti-file-alert',
+  missed_punch_mine:   'ti-file-text',
+  manual_shift:        'ti-clock-plus',
   create_missed_punch: 'ti-alert-triangle',
-  sign_hour_reports: 'ti-signature',
-  commander_swaps: 'ti-arrows-exchange',
-  guard_calendar: 'ti-shield-half',
-  urgent_call: 'ti-bell-ringing',
-  commander_vacations: 'ti-beach'
+  broadcast_all:       'ti-speakerphone',
+  send_documents:      'ti-file-upload',
+  urgent_call:         'ti-bell-ringing',
+  sign_hour_reports:   'ti-signature',
+  missed_punch:        'ti-file-alert',
+  commander_swaps:     'ti-arrows-exchange',
+  commander_vacations: 'ti-beach',
+  guard_calendar:      'ti-shield-half'
 };
 
 function scLabel(raw) {
@@ -5192,11 +5211,15 @@ function scLabel(raw) {
 //  סרגל קיצורים — צ'יפים + שמירה בשרת
 // ---------------------------------------------------------------------
 let myShortcutsCache = null;
+let myPerms = [];
+let myPosition = '';
 
 async function loadShortcutsFromServer() {
   try {
     const r = await apiGet('getMyShortcuts', { code: state.code });
     myShortcutsCache = (r && r.shortcuts) || [];
+    myPerms = (r && r.perms) || [];
+    myPosition = (r && r.position) || '';
   } catch (e) {
     // נפילה לאחור לאחסון המקומי, כדי שמי שכבר בחר לא יאבד את הבחירה
     try {
@@ -5232,19 +5255,19 @@ renderShortcutsBar = function () {
   const bar = document.getElementById('shortcuts-bar');
   if (!bar) return;
 
-  if (!state.isManager) {
-    bar.classList.add('hidden');
-    return;
-  }
+  // סינון לפי הרשאה: קיצור שנבחר בעבר ושוב אינו מותר פשוט לא יוצג.
+  // זה מטפל גם במי שהיה ראש משמרת ותפקידו השתנה.
+  const ids = (myShortcutsCache || []).filter(id => {
+    const d = AVAILABLE_SHORTCUTS.find(x => x.id === id);
+    return d && canUseShortcut(d);
+  });
 
-  const ids = myShortcutsCache || [];
   bar.innerHTML = '';
 
   ids.forEach(id => {
-    const def = AVAILABLE_SHORTCUTS.find(s => s.id === id);
+    const def = AVAILABLE_SHORTCUTS.find(x => x.id === id);
     if (!def) return;
-    // עטיפה עם כפתור מחיקה גלוי. לחיצה ארוכה לא מספיקה - היא לא
-    // מגלה את עצמה, ומשתמש שהוסיף קיצור בטעות נשאר תקוע איתו.
+
     const wrap = document.createElement('span');
     wrap.className = 'sc-wrap';
 
@@ -5282,10 +5305,14 @@ renderShortcutsBar = function () {
 };
 
 function openShortcutPicker() {
-  const ids = myShortcutsCache || [];
+  const ids = (myShortcutsCache || []).filter(id => {
+    const d = AVAILABLE_SHORTCUTS.find(x => x.id === id);
+    return d && canUseShortcut(d);
+  });
   const body = mpModal('sc-picker-modal', 'קיצורי דרך');
 
-  const available = AVAILABLE_SHORTCUTS.filter(s => ids.indexOf(s.id) === -1);
+  const available = AVAILABLE_SHORTCUTS.filter(x =>
+    ids.indexOf(x.id) === -1 && canUseShortcut(x));
 
   body.innerHTML =
     '<div style="font-size:13.5px;color:var(--text-muted);margin-bottom:12px">' +
@@ -5758,5 +5785,161 @@ function checkIconFont() {
 
 // בדיקה אחרי שנייה, כדי לתת לגופן זמן להיטען ברשת איטית
 setTimeout(checkIconFont, 1200);
+
+
+// =====================================================================
+//  דוחות אי החתמה — מסך הכבאי
+// =====================================================================
+//  עד היום הטופס הופיע רק כבאנר בדאשבורד. עכשיו יש לכל משתמש קיצור
+//  ייעודי, כדי שיוכל לחזור לטפסים גם אחרי שסגר את הבאנר.
+
+async function openMyMissedPunchModal() {
+  const body = mpModal('mp-mine-modal', 'דוחות אי החתמה');
+  body.innerHTML = '<div class="empty-state">טוען...</div>';
+
+  try {
+    const res = await callApi('GET', 'listMyMissedPunchReports', { code: state.code });
+    const reports = res.reports || [];
+
+    if (reports.length === 0) {
+      body.innerHTML = '<div class="empty-state">אין דוחות אי החתמה פתוחים</div>';
+      return;
+    }
+
+    body.innerHTML = reports.map(r =>
+      '<div class="shift-card" style="flex-direction:column;align-items:stretch;' +
+      'border-right:5px solid ' + (r.status === 'ממתין למילוי' ? '#C1272D' : '#B8860B') + '">' +
+      '<div style="font-weight:800;font-size:15px">' + escapeHtml(r.monthKey || '') + '</div>' +
+      '<div style="font-size:13px;color:var(--text-muted);margin-top:3px">' +
+      r.rows.length + ' תאריכים · נפתח על ידי ' + escapeHtml(r.createdBy || '') + '</div>' +
+      '<div style="font-size:13.5px;font-weight:700;margin-top:5px">' +
+      escapeHtml(r.status) + '</div>' +
+      (r.rejectReason
+        ? '<div style="font-size:12.5px;color:var(--danger);margin-top:4px">הוחזר: ' +
+          escapeHtml(r.rejectReason) + '</div>'
+        : '') +
+      (r.status === 'ממתין למילוי'
+        ? '<button class="tool-btn mp-open-btn" data-id="' + escapeHtml(r.id) + '" ' +
+          'style="width:100%;margin-top:10px;font-weight:700">מלא את הטופס</button>'
+        : '') +
+      '</div>'
+    ).join('');
+  } catch (err) {
+    body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
+}
+
+// =====================================================================
+//  סינון מגירת הפעולות לפי הרשאה
+// =====================================================================
+
+function canDo(what) {
+  if (state.isAdmin) return true;
+  if (what === 'manager') return state.isManager === true;
+  if (what === 'hr') return state.isHr === true;
+  if (what === 'guard') {
+    return state.isManager === true || (myPerms || []).indexOf('guard_manager') !== -1;
+  }
+  return false;
+}
+
+// דריסה של renderDrawer עם סינון הרשאות
+renderDrawer = function () {
+  const drawer = document.getElementById('ds-drawer');
+  if (!drawer) return;
+
+  const mine = DRAWER_MINE.filter(a => {
+    if (a.id === 'myguard') return true;
+    return true;
+  });
+
+  const command = DRAWER_COMMAND.filter(a => {
+    if (a.id === 'cmdguard') return canDo('guard');
+    if (a.id === 'urgent') return canDo('manager') || canDo('hr');
+    if (a.id === 'cmdmsg') return canDo('manager') || canDo('hr');
+    return canDo('manager');
+  });
+
+  let html = '<div class="ds-handle"></div>';
+
+  if (command.length > 0) {
+    html += '<div class="ds-group-title">שלי</div>' +
+      '<div class="ds-grid">' + mine.map(tileHtml).join('') + '</div>' +
+      '<div class="ds-group-title">ניהול משמרת</div>' +
+      '<div class="ds-grid">' + command.map(tileHtml).join('') + '</div>';
+  } else {
+    html += '<div class="ds-grid">' + mine.map(tileHtml).join('') + '</div>';
+  }
+
+  drawer.innerHTML = html;
+
+  const all = DRAWER_MINE.concat(DRAWER_COMMAND);
+  drawer.querySelectorAll('.ds-tile').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const act = all.find(a => a.id === btn.dataset.act);
+      toggleDrawer(false);
+      if (!act) return;
+      setTimeout(() => {
+        try { act.run(); } catch (e) { showToast('הפעולה לא זמינה כרגע'); }
+      }, 180);
+    });
+  });
+};
+
+// =====================================================================
+//  הרשאות מיוחדות — כפתור במסך הניהול
+// =====================================================================
+//  מאפשר לתת יכולת נקודתית בלי להפוך אדם לראש משמרת. למשל: טל חודרה
+//  מנהל את יומן האבטחות ומשבץ אנשים, בלי שאר הרשאות הפיקוד.
+
+const SPECIAL_PERMS_UI = {
+  guard_manager: 'ניהול יומן אבטחות ושיבוץ אנשים'
+};
+
+async function openPermsPicker(code, name) {
+  const body = mpModal('perms-modal', 'הרשאות מיוחדות — ' + name);
+  body.innerHTML = '<div class="empty-state">טוען...</div>';
+
+  try {
+    const users = cachedAdminUsersList || [];
+    const u = users.find(x => String(x.code).trim() === String(code).trim());
+    const current = (u && u.perms) || [];
+
+    body.innerHTML =
+      '<div style="font-size:13.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.6">' +
+      'הרשאה נקודתית נותנת יכולת אחת בלבד, בלי להפוך את המשתמש לראש משמרת ' +
+      'ובלי לתת לו את שאר הרשאות הפיקוד.</div>' +
+      Object.keys(SPECIAL_PERMS_UI).map(k =>
+        '<label style="display:flex;align-items:center;gap:12px;padding:15px;' +
+        'margin-bottom:8px;border:1px solid var(--border,#ddd);border-radius:12px;cursor:pointer">' +
+        '<input type="checkbox" class="perm-cb" value="' + k + '" ' +
+        (current.indexOf(k) !== -1 ? 'checked' : '') +
+        ' style="width:20px;height:20px;cursor:pointer">' +
+        '<span style="font-size:14.5px">' + SPECIAL_PERMS_UI[k] + '</span></label>'
+      ).join('') +
+      '<button id="perms-save" class="btn btn-primary" style="width:100%;margin-top:12px">שמור</button>';
+
+    document.getElementById('perms-save').addEventListener('click', async () => {
+      const perms = Array.from(document.querySelectorAll('.perm-cb:checked')).map(cb => cb.value);
+      try {
+        const r = await callApi('POST', 'adminSetUserPerms', {
+          adminCode: state.code, targetCode: code, perms: perms
+        });
+        showToast(r.message || 'ההרשאות עודכנו');
+        closeMpModal('perms-modal');
+        loadAdminUsers();
+      } catch (err) {
+        showToast(err.message || 'שגיאה בעדכון');
+      }
+    });
+  } catch (err) {
+    body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('.admin-perms-btn');
+  if (b) openPermsPicker(b.dataset.code, b.dataset.name);
+});
 
 tryAutoLogin();
