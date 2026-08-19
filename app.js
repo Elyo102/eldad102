@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v59';
+const APP_VERSION = 'v60';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -2356,7 +2356,8 @@ const AVAILABLE_SHORTCUTS = [
   { id: 'confirmable_broadcast', label: '✅ קרא וחתום' },
   { id: 'missed_punch', label: '📝 דוחות אי החתמה' },
   { id: 'create_missed_punch', label: '⚠️ פתיחת דוח אי החתמה' },
-  { id: 'sign_hour_reports', label: '✍️ חתימת דוחות שעות' }
+  { id: 'sign_hour_reports', label: '✍️ חתימת דוחות שעות' },
+  { id: 'commander_swaps', label: '🔄 החלפות משמרת לאישור' }
 ];
 
 function getMyShortcuts() {
@@ -2442,6 +2443,8 @@ function triggerShortcut(id) {
     openCreateMissedPunchModal();
   } else if (id === 'sign_hour_reports') {
     openHourSignModal();
+  } else if (id === 'commander_swaps') {
+    openCommanderSwapsModal();
   }
 }
 
@@ -3510,6 +3513,20 @@ function renderSignatureButton() {
     tools.appendChild(btn);
   }
   btn.textContent = myStoredSignature ? '✍️ החתימה שלי' : '✍️ שמור חתימה';
+
+  // כפתור החלפות משמרת - לכל כבאי, לא רק למנהלים
+  let swapBtn = document.getElementById('my-swaps-btn');
+  if (!swapBtn) {
+    const tools = document.querySelector('.bottom-tools');
+    if (tools) {
+      swapBtn = document.createElement('button');
+      swapBtn.id = 'my-swaps-btn';
+      swapBtn.className = 'tool-btn';
+      swapBtn.textContent = '🔄 החלפות משמרת';
+      swapBtn.addEventListener('click', openMySwapsModal);
+      tools.appendChild(swapBtn);
+    }
+  }
 }
 
 function openMySignatureModal() {
@@ -4007,6 +4024,256 @@ function openPositionPicker(code, name, currentPosition) {
       }
     });
   });
+}
+
+
+// =====================================================================
+//  החלפות משמרת
+// =====================================================================
+//  שני מסכים: הגשה לכבאי, ואישור לראש המשמרת. שניהם נבנים דינמית
+//  מ-JS ולא ב-index.html, כדי לא לגעת במבנה ה-HTML הקיים.
+
+let swapCandidatesCache = null;
+
+function swapStatusColor(status) {
+  if (status === 'בוצע') return '#1D7A5C';
+  if (status === 'נדחה' || status === 'פג תוקף') return '#C1272D';
+  if (status === 'אושר - ממתין לעדכון בסידור') return '#B8860B';
+  return '#666';
+}
+
+// ---------------------------------------------------------------------
+//  כבאי — הגשה וצפייה
+// ---------------------------------------------------------------------
+
+async function openMySwapsModal() {
+  const body = mpModal('swap-my-modal', 'החלפות משמרת');
+  body.innerHTML = '<div class="empty-state">טוען...</div>';
+
+  try {
+    const res = await callApi('GET', 'listMySwapRequests', { code: state.code });
+    const items = res.requests || [];
+
+    let html =
+      '<button id="swap-new-btn" class="btn btn-primary" ' +
+      'style="width:100%;margin-bottom:14px">בקשת החלפה חדשה</button>';
+
+    if (items.length === 0) {
+      html += '<div class="empty-state">אין בקשות החלפה</div>';
+    } else {
+      html += items.map(r => {
+        const color = swapStatusColor(r.status);
+        const typeLabel = r.type === 'cancel' ? 'ביטול החלפה' : 'החלפת משמרת';
+        return '<div class="shift-card" style="flex-direction:column;align-items:stretch;' +
+          'border-right:5px solid ' + color + '">' +
+          '<div style="font-weight:800;font-size:14px">' + typeLabel +
+          (r.isMine ? '' : ' · הוגש על ידי ' + escapeHtml(r.fromName)) + '</div>' +
+          '<div style="font-size:13.5px;margin-top:4px">' +
+          escapeHtml(r.fromName) + ' (' + mpDateLabel(r.fromDate) + ') ↔ ' +
+          escapeHtml(r.toName) + ' (' + mpDateLabel(r.toDate) + ')</div>' +
+          '<div style="font-size:12.5px;color:var(--text-muted);margin-top:3px">' +
+          escapeHtml(r.reason || '') + '</div>' +
+          '<div style="font-size:13px;font-weight:700;color:' + color + ';margin-top:6px">' +
+          escapeHtml(r.status) +
+          (r.commanderA ? ' · ✅ ' + escapeHtml(r.commanderA) : '') +
+          (r.commanderB ? ' · ✅ ' + escapeHtml(r.commanderB) : '') + '</div>' +
+          (r.rejectReason
+            ? '<div style="font-size:12.5px;color:var(--danger);margin-top:4px">' +
+              escapeHtml(r.rejectReason) + '</div>'
+            : '') +
+          '</div>';
+      }).join('');
+    }
+
+    body.innerHTML = html;
+    document.getElementById('swap-new-btn').addEventListener('click', () => openSwapFormModal('swap'));
+  } catch (err) {
+    body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
+}
+
+async function openSwapFormModal(type) {
+  const isCancel = type === 'cancel';
+  const body = mpModal('swap-form-modal', isCancel ? 'ביטול החלפה' : 'בקשת החלפת משמרת');
+  body.innerHTML = '<div class="empty-state">טוען רשימת כבאים...</div>';
+
+  try {
+    if (!swapCandidatesCache) {
+      const res = await callApi('GET', 'listSwapCandidates', { code: state.code });
+      swapCandidatesCache = res.people || [];
+    }
+
+    body.innerHTML =
+      '<div style="font-size:13.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.6">' +
+      'סגור את ההחלפה מול הכבאי השני לפני ההגשה. הבקשה תעבור לאישור ' +
+      'ראש המשמרת שלך, ואחריו לראש המשמרת שלו.</div>' +
+
+      '<label class="form-label" style="display:block;margin-bottom:4px">התאריך שלי</label>' +
+      '<input id="swap-my-date" type="date" style="width:100%;padding:11px;font-size:16px;' +
+      'border:1px solid var(--border,#ccc);border-radius:8px;margin-bottom:12px">' +
+
+      '<label class="form-label" style="display:block;margin-bottom:4px">הכבאי השני</label>' +
+      '<select id="swap-other" style="width:100%;padding:11px;font-size:16px;' +
+      'border:1px solid var(--border,#ccc);border-radius:8px;margin-bottom:12px">' +
+      swapCandidatesCache.map(p => '<option value="' + escapeHtml(p.code) + '">' +
+        escapeHtml(p.name) + (p.team ? ' · ' + escapeHtml(p.team) : '') + '</option>').join('') +
+      '</select>' +
+
+      '<label class="form-label" style="display:block;margin-bottom:4px">התאריך שלו</label>' +
+      '<input id="swap-other-date" type="date" style="width:100%;padding:11px;font-size:16px;' +
+      'border:1px solid var(--border,#ccc);border-radius:8px;margin-bottom:12px">' +
+
+      '<label class="form-label" style="display:block;margin-bottom:4px">נימוק</label>' +
+      '<textarea id="swap-reason" rows="3" placeholder="לדוגמה: אירוע משפחתי" ' +
+      'style="width:100%;padding:11px;font-size:16px;border:1px solid var(--border,#ccc);' +
+      'border-radius:8px;resize:vertical"></textarea>' +
+
+      '<div id="swap-form-error" class="hidden" style="color:var(--danger);' +
+      'font-size:13.5px;margin-top:10px"></div>' +
+      '<button id="swap-submit" class="btn btn-primary" ' +
+      'style="width:100%;margin-top:14px">שלח לאישור</button>';
+
+    document.getElementById('swap-submit').addEventListener('click', async () => {
+      const errBox = document.getElementById('swap-form-error');
+      errBox.classList.add('hidden');
+
+      const params = {
+        type: isCancel ? 'cancel' : 'swap',
+        myDate: document.getElementById('swap-my-date').value,
+        otherCode: document.getElementById('swap-other').value,
+        otherDate: document.getElementById('swap-other-date').value,
+        reason: document.getElementById('swap-reason').value.trim()
+      };
+
+      try {
+        const r = await callApi('POST', 'submitSwapRequest', { code: state.code, params });
+        showToast(r.message || 'הבקשה הוגשה');
+        closeMpModal('swap-form-modal');
+        openMySwapsModal();
+      } catch (err) {
+        errBox.textContent = err.message || 'שגיאה בהגשה';
+        errBox.classList.remove('hidden');
+      }
+    });
+  } catch (err) {
+    body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
+}
+
+// ---------------------------------------------------------------------
+//  ראש משמרת — אישור, דחייה, וסימון עדכון בסידור
+// ---------------------------------------------------------------------
+
+async function openCommanderSwapsModal() {
+  const body = mpModal('swap-commander-modal', 'החלפות משמרת לאישור');
+  body.innerHTML = '<div class="empty-state">טוען...</div>';
+
+  try {
+    const res = await callApi('GET', 'commanderListSwaps', { code: state.code });
+    const pending = res.pending || [];
+    const awaiting = res.awaitingSchedule || [];
+
+    if (pending.length === 0 && awaiting.length === 0) {
+      body.innerHTML = '<div class="empty-state">אין בקשות הממתינות לך</div>';
+      return;
+    }
+
+    let html = '';
+
+    if (pending.length > 0) {
+      html += '<div class="stats-card-title" style="margin-bottom:8px">' +
+        'ממתינות לאישורך (' + pending.length + ')</div>';
+      html += pending.map(r => {
+        const typeLabel = r.type === 'cancel' ? 'ביטול החלפה' : 'החלפת משמרת';
+        return '<div class="shift-card swap-card" data-id="' + escapeHtml(r.id) + '" ' +
+          'style="flex-direction:column;align-items:stretch">' +
+          '<div style="font-weight:800;font-size:15px">' + typeLabel +
+          (r.stage === 'B' ? ' · אישור שני' : ' · אישור ראשון') + '</div>' +
+          '<div style="font-size:13.5px;margin-top:5px;line-height:1.7">' +
+          '<b>' + escapeHtml(r.fromName) + '</b> — ' + mpDateLabel(r.fromDate) + '<br>' +
+          '<b>' + escapeHtml(r.toName) + '</b> — ' + mpDateLabel(r.toDate) + '</div>' +
+          '<div style="font-size:13px;color:var(--text-muted);margin-top:5px">נימוק: ' +
+          escapeHtml(r.reason || '') + '</div>' +
+          (r.commanderA
+            ? '<div style="font-size:13px;color:#1D7A5C;font-weight:700;margin-top:5px">' +
+              '✅ אושר על ידי ' + escapeHtml(r.commanderA) + '</div>'
+            : '') +
+          '<div style="display:flex;gap:8px;margin-top:12px">' +
+          '<button class="tool-btn swap-approve" data-id="' + escapeHtml(r.id) +
+          '" style="flex:1;padding:9px;font-weight:700">אשר</button>' +
+          '<button class="tool-btn swap-reject" data-id="' + escapeHtml(r.id) +
+          '" style="flex:1;padding:9px;color:var(--danger)">דחה</button>' +
+          '</div></div>';
+      }).join('');
+    }
+
+    if (awaiting.length > 0) {
+      html += '<div class="stats-card-title" style="margin:16px 0 8px">' +
+        'אושרו — ממתינות לעדכון בסידור (' + awaiting.length + ')</div>' +
+        '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">' +
+        'עדכן את הסידור ידנית, ואז סמן כאן. בלי הסימון אין דרך לדעת שהעדכון בוצע.</div>';
+      html += awaiting.map(r =>
+        '<div class="shift-card swap-card" data-id="' + escapeHtml(r.id) + '" ' +
+        'style="flex-direction:column;align-items:stretch;border-right:5px solid #B8860B">' +
+        '<div style="font-size:13.5px;line-height:1.7">' +
+        '<b>' + escapeHtml(r.fromName) + '</b> — ' + mpDateLabel(r.fromDate) + '<br>' +
+        '<b>' + escapeHtml(r.toName) + '</b> — ' + mpDateLabel(r.toDate) + '</div>' +
+        '<button class="tool-btn swap-schedule-done" data-id="' + escapeHtml(r.id) +
+        '" style="width:100%;margin-top:10px;padding:9px;font-weight:700">עודכן בסידור</button>' +
+        '</div>'
+      ).join('');
+    }
+
+    body.innerHTML = html;
+
+    body.querySelectorAll('.swap-approve').forEach(b => {
+      b.addEventListener('click', async () => {
+        try {
+          const r = await callApi('POST', 'commanderApproveSwap', {
+            code: state.code, swapId: b.dataset.id
+          });
+          await fadeOutCard(b.closest('.swap-card'), r.message || 'אושר');
+          openCommanderSwapsModal();
+        } catch (err) {
+          showToast(err.message || 'שגיאה באישור');
+        }
+      });
+    });
+
+    body.querySelectorAll('.swap-reject').forEach(b => {
+      b.addEventListener('click', async () => {
+        const reason = prompt('נימוק לדחייה (יישלח לשני הכבאים):');
+        if (reason === null) return;
+        if (!reason.trim()) { showToast('חובה לציין נימוק'); return; }
+        try {
+          await callApi('POST', 'commanderRejectSwap', {
+            code: state.code, swapId: b.dataset.id, reason
+          });
+          await fadeOutCard(b.closest('.swap-card'), 'הבקשה נדחתה');
+          openCommanderSwapsModal();
+        } catch (err) {
+          showToast(err.message || 'שגיאה בדחייה');
+        }
+      });
+    });
+
+    body.querySelectorAll('.swap-schedule-done').forEach(b => {
+      b.addEventListener('click', async () => {
+        if (!confirm('לאשר שסידור העבודה עודכן בפועל?')) return;
+        try {
+          await callApi('POST', 'markScheduleUpdated', {
+            code: state.code, swapId: b.dataset.id
+          });
+          await fadeOutCard(b.closest('.swap-card'), 'ההחלפה הושלמה');
+          openCommanderSwapsModal();
+        } catch (err) {
+          showToast(err.message || 'שגיאה בעדכון');
+        }
+      });
+    });
+  } catch (err) {
+    body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
 }
 
 tryAutoLogin();
