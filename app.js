@@ -222,6 +222,7 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
   renderShortcutsBar();
   startPersonalAlertsPolling();
   refreshMissedPunchUi();
+  loadMySignature();
   if (state.isAdmin) loadFixProposals();
 }
 
@@ -1857,6 +1858,23 @@ $('signature-save-btn').addEventListener('click', async () => {
     let res;
     // שני מצבי החתימה של טופס אי החתמה - כל אחד סוגר את המודל שלו
     // ומרענן את התצוגה המתאימה, ולכן יוצא מוקדם ולא ממשיך למטה.
+    // כל חתימה שנוצרת על הקנבס נשמרת גם כחתימה הקבועה של המשתמש,
+    // כדי שבפעם הבאה יספיק לו לאשר במקום לצייר מחדש.
+    if (!myStoredSignature) {
+      try {
+        await apiPost('saveMySignature', { code: state.code, signatureBase64: base64 });
+        myStoredSignature = base64;
+      } catch (e) { /* לא חוסם את החתימה עצמה */ }
+    }
+
+    if (signatureMode === 'store-only') {
+      myStoredSignature = base64;
+      $('signature-modal').classList.add('hidden');
+      signatureMode = 'personal';
+      renderSignatureButton();
+      showToast('החתימה נשמרה');
+      return;
+    }
     if (signatureMode === 'missedpunch-employee') {
       res = await callApi('POST', 'submitMissedPunchReport', {
         code: state.code, reportId: missedPunchActiveId, signatureBase64: base64
@@ -2886,8 +2904,14 @@ function renderEmployeeMissedPunchRows(report) {
       await callApi('POST', 'saveMissedPunchRows', {
         code: state.code, reportId: missedPunchActiveId, rows: missedPunchActiveRows
       });
-      signatureMode = 'missedpunch-employee';
-      openSignatureModal('טופס אי החתמת כרטיס');
+      signWithStoredOrDraw('missedpunch-employee', 'טופס אי החתמת כרטיס', async () => {
+        const r = await callApi('POST', 'submitMissedPunchReport', {
+          code: state.code, reportId: missedPunchActiveId, signatureBase64: ''
+        });
+        closeMpModal('mp-employee-modal');
+        showToast(r.message || 'הטופס נשלח לאישור ראש המשמרת');
+        refreshMissedPunchUi();
+      });
     } catch (err) {
       errBox.textContent = err.message || 'שגיאה בשמירה';
       errBox.classList.remove('hidden');
@@ -2986,8 +3010,13 @@ async function openCommanderMissedPunchModal() {
     body.querySelectorAll('.mp-approve-btn').forEach(b => {
       b.addEventListener('click', () => {
         missedPunchActiveId = b.dataset.id;
-        signatureMode = 'missedpunch-commander';
-        openSignatureModal('אישור טופס אי החתמה');
+        signWithStoredOrDraw('missedpunch-commander', 'אישור טופס אי החתמה', async () => {
+          const r = await callApi('POST', 'commanderApproveMissedPunch', {
+            code: state.code, reportId: missedPunchActiveId, signatureBase64: ''
+          });
+          showToast(r.message || 'הטופס אושר ונשלח למשאבי אנוש');
+          openCommanderMissedPunchModal();
+        });
       });
     });
 
@@ -3227,5 +3256,132 @@ document.addEventListener('click', async (e) => {
     }
   }
 });
+
+
+// =====================================================================
+//  חתימה אישית שמורה
+// =====================================================================
+//  הכבאי חותם פעם אחת. מכאן כל טופס דורש ממנו רק "אשר חתימה",
+//  והחתימה השמורה מודבקת אוטומטית במקום המיועד לה.
+
+let myStoredSignature = '';
+let myStoredSignatureAt = null;
+
+async function loadMySignature() {
+  if (!state.code) return;
+  try {
+    const res = await apiGet('getMySignature', { code: state.code });
+    myStoredSignature = (res && res.signature) || '';
+    myStoredSignatureAt = (res && res.savedAt) || null;
+  } catch (e) {
+    myStoredSignature = '';
+  }
+  renderSignatureButton();
+}
+
+// אם יש חתימה שמורה - מציג אישור עם תצוגה מקדימה. אם אין - פותח
+// את הקנבס, והחתימה שתצויר תישמר אוטומטית גם לפעמים הבאות.
+function signWithStoredOrDraw(mode, title, onConfirmed) {
+  if (!myStoredSignature) {
+    signatureMode = mode;
+    openSignatureModal(title);
+    return;
+  }
+
+  const body = mpModal('sig-confirm-modal', title);
+  body.innerHTML =
+    '<div style="font-size:13.5px;color:var(--text-muted);margin-bottom:10px">' +
+    'החתימה השמורה שלך תופיע במקום המיועד לחתימה בטופס.</div>' +
+    '<div style="border:1px solid var(--border,#ddd);border-radius:10px;padding:10px;' +
+    'background:#fff;text-align:center">' +
+    '<img src="data:image/png;base64,' + myStoredSignature +
+    '" style="max-height:110px;max-width:100%">' +
+    '</div>' +
+    '<button id="sig-confirm-ok" class="btn btn-primary" ' +
+    'style="width:100%;margin-top:14px">אישור חתימה</button>' +
+    '<button id="sig-confirm-redraw" class="tool-btn" ' +
+    'style="width:100%;margin-top:8px">חתום מחדש</button>';
+
+  document.getElementById('sig-confirm-ok').addEventListener('click', async () => {
+    closeMpModal('sig-confirm-modal');
+    try {
+      await onConfirmed();
+    } catch (err) {
+      showToast(err.message || 'שגיאה באישור');
+    }
+  });
+
+  document.getElementById('sig-confirm-redraw').addEventListener('click', () => {
+    closeMpModal('sig-confirm-modal');
+    signatureMode = mode;
+    openSignatureModal(title);
+  });
+}
+
+// כפתור לניהול החתימה - נוסף לסרגל הכלים התחתון של כל משתמש
+function renderSignatureButton() {
+  if (state.isHr) return;
+  let btn = document.getElementById('my-signature-btn');
+  if (!btn) {
+    const tools = document.querySelector('.bottom-tools');
+    if (!tools) return;
+    btn = document.createElement('button');
+    btn.id = 'my-signature-btn';
+    btn.className = 'tool-btn';
+    btn.addEventListener('click', openMySignatureModal);
+    tools.appendChild(btn);
+  }
+  btn.textContent = myStoredSignature ? '✍️ החתימה שלי' : '✍️ שמור חתימה';
+}
+
+function openMySignatureModal() {
+  const body = mpModal('my-signature-modal', 'החתימה שלי');
+  if (myStoredSignature) {
+    let savedLabel = '';
+    try {
+      savedLabel = new Date(myStoredSignatureAt).toLocaleDateString('he-IL');
+    } catch (e) { savedLabel = ''; }
+
+    body.innerHTML =
+      '<div style="font-size:13.5px;color:var(--text-muted);margin-bottom:10px">' +
+      'זו החתימה שמופיעה על כל טופס שאתה מאשר' +
+      (savedLabel ? '. נשמרה ב-' + savedLabel : '') + '.</div>' +
+      '<div style="border:1px solid var(--border,#ddd);border-radius:10px;padding:10px;' +
+      'background:#fff;text-align:center">' +
+      '<img src="data:image/png;base64,' + myStoredSignature +
+      '" style="max-height:120px;max-width:100%"></div>' +
+      '<button id="sig-replace" class="btn btn-primary" ' +
+      'style="width:100%;margin-top:14px">החלף חתימה</button>' +
+      '<button id="sig-delete" class="tool-btn" ' +
+      'style="width:100%;margin-top:8px;color:var(--danger)">מחק חתימה</button>';
+
+    document.getElementById('sig-delete').addEventListener('click', async () => {
+      if (!confirm('למחוק את החתימה השמורה? בפעם הבאה תתבקש לחתום מחדש.')) return;
+      try {
+        const r = await callApi('POST', 'deleteMySignature', { code: state.code });
+        myStoredSignature = '';
+        myStoredSignatureAt = null;
+        closeMpModal('my-signature-modal');
+        renderSignatureButton();
+        showToast(r.message || 'החתימה נמחקה');
+      } catch (err) {
+        showToast(err.message || 'שגיאה במחיקה');
+      }
+    });
+  } else {
+    body.innerHTML =
+      '<div style="font-size:13.5px;color:var(--text-muted);margin-bottom:10px">' +
+      'עדיין לא שמרת חתימה. חתום פעם אחת, ומכאן כל טופס ידרוש ממך ' +
+      'רק לאשר במקום לחתום מחדש.</div>' +
+      '<button id="sig-replace" class="btn btn-primary" ' +
+      'style="width:100%;margin-top:6px">חתום עכשיו</button>';
+  }
+
+  document.getElementById('sig-replace').addEventListener('click', () => {
+    closeMpModal('my-signature-modal');
+    signatureMode = 'store-only';
+    openSignatureModal('החתימה שלי');
+  });
+}
 
 tryAutoLogin();
