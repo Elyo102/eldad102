@@ -41,7 +41,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v72';
+const APP_VERSION = 'v73';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -4473,7 +4473,24 @@ async function drawGuardCalendar(body) {
     '<div class="gcal-head">' +
     '<div class="gcal-nav">' +
     '<button id="guard-prev" class="tool-btn" style="width:auto;padding:9px 17px">‹</button>' +
-    '<div class="gcal-title">' + MONTH_NAMES[m.getMonth()] + ' ' + m.getFullYear() + '</div>' +
+    // בוררים במקום תווית סטטית: קפיצה ישירה לכל חודש ולכל שנה,
+    // במקום ללחוץ על החץ עשרים פעם כדי להגיע לדצמבר
+    '<select id="guard-month" class="gcal-sel-box">' +
+    MONTH_NAMES.map((mn, i) => '<option value="' + i + '"' +
+      (i === m.getMonth() ? ' selected' : '') + '>' + mn + '</option>').join('') +
+    '</select>' +
+    '<select id="guard-year" class="gcal-sel-box">' +
+    (function () {
+      const base = new Date().getFullYear();
+      let opts = '';
+      for (let y = base - 2; y <= base + 3; y++) {
+        opts += '<option value="' + y + '"' + (y === m.getFullYear() ? ' selected' : '') +
+          '>' + y + '</option>';
+      }
+      return opts;
+    })() +
+    '</select>' +
+    '<button id="guard-today" class="tool-btn" style="width:auto;padding:9px 14px">היום</button>' +
     '<button id="guard-next" class="tool-btn" style="width:auto;padding:9px 17px">›</button>' +
     '</div>' +
     '<div class="gcal-actions">' +
@@ -4505,6 +4522,20 @@ async function drawGuardCalendar(body) {
     guardState.month = new Date(m.getFullYear(), m.getMonth() + 1, 1);
     drawGuardCalendar();
   });
+  document.getElementById('guard-month').addEventListener('change', (e) => {
+    guardState.month = new Date(guardState.month.getFullYear(), Number(e.target.value), 1);
+    drawGuardCalendar();
+  });
+  document.getElementById('guard-year').addEventListener('change', (e) => {
+    guardState.month = new Date(Number(e.target.value), guardState.month.getMonth(), 1);
+    drawGuardCalendar();
+  });
+  document.getElementById('guard-today').addEventListener('click', () => {
+    const n = new Date();
+    guardState.month = new Date(n.getFullYear(), n.getMonth(), 1);
+    drawGuardCalendar();
+  });
+
   document.getElementById('guard-add').addEventListener('click', () => openGuardFormModal(null));
   document.getElementById('guard-load').addEventListener('click', openGuardLoadModal);
 
@@ -5365,6 +5396,16 @@ nav.bottom-tools:not(#shortcuts-bar) .tool-btn i {
 }
 .gcal-nav { display: flex; align-items: center; gap: 10px; }
 .gcal-title { font-size: 22px; font-weight: 800; min-width: 150px; text-align: center; }
+.gcal-sel-box {
+  padding: 9px 12px;
+  font-size: 16px;
+  font-weight: 700;
+  font-family: inherit;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
 .gcal-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .gcal-stats {
