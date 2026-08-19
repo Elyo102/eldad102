@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v58';
+const APP_VERSION = 'v59';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -102,7 +102,14 @@ async function apiGet(action, params = {}) {
   // פעולות כמו "סמן כטופל" יכלו להיראות "לא עובדות" למרות שהשרת
   // בפועל עדכן נכון, כי הרענון שאחריהן קיבל תשובה ישנה מהמטמון.
   url.searchParams.set('_t', Date.now());
-  const res = await fetch(url.toString(), { method: 'GET', cache: 'no-store' });
+  let res;
+  try {
+    res = await fetch(url.toString(), { method: 'GET', cache: 'no-store' });
+  } catch (e) {
+    // "Failed to fetch" הוא כשל רשת אמיתי - הבקשה לא הגיעה לשרת בכלל.
+    // הסיבות השכיחות: אין חיבור, או Service Worker ישן שתקוע.
+    throw new Error('אין חיבור לשרת. בדוק אינטרנט, ואם הבעיה נמשכת לחץ על כפתור הרענון המלא במסך הכניסה.');
+  }
   if (!res.ok) {
     // 404 כמעט תמיד אומר שכתובת ה-API עצמה שגויה או שהפריסה הוחלפה,
     // ולא שהפעולה נכשלה. הודעה מפורשת חוסכת חיפוש מיותר.
