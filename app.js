@@ -4933,52 +4933,101 @@ function injectDesignStyles() {
   const st = document.createElement('style');
   st.id = 'ds102-design-v2';
   st.textContent = `
-/* ── כותרת: מונעת מכפתור היציאה לצאת מהמסך במצב אנכי ── */
-.app-header, header {
-  flex-wrap: nowrap !important;
-  gap: 4px !important;
-  padding-inline: 8px !important;
-  overflow: visible !important;
+/* ── כותרת עליונה ── */
+/* שורת הכותרת מכילה עד עשרה אייקונים. במסך אנכי הם לא נכנסים בשורה */
+/* אחת, ולכן כפתור היציאה נדחף מחוץ למסך. עטיפה לשתי שורות פותרת את */
+/* זה בלי להסתיר כלום ובלי גלילה נסתרת. */
+.header-top {
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  align-items: center !important;
 }
-.app-header .tool-btn, header .tool-btn,
-.app-header button, header button {
-  flex: 0 0 auto !important;
+.header-actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  justify-content: flex-start !important;
+  flex: 1 1 100% !important;
+}
+.user-info {
+  flex: 1 1 100% !important;
   min-width: 0 !important;
 }
 #user-name {
-  flex: 1 1 auto !important;
-  min-width: 0 !important;
+  display: block !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
-  font-size: 15px !important;
+  font-size: 17px !important;
 }
+
+/* אייקוני הכותרת: מטרת מגע של 44 פיקסלים, המינימום שנוח לאגודל */
+.header-actions .icon-btn {
+  min-width: 44px !important;
+  min-height: 44px !important;
+  font-size: 20px !important;
+  padding: 0 !important;
+  border-radius: 12px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.header-actions .icon-btn i { font-size: 21px; line-height: 1; }
+
+/* היציאה מקבלת רוחב אוטומטי כדי שהמילה תיכנס במלואה */
 #logout-btn {
-  order: -1 !important;
-  padding: 8px 12px !important;
-  font-size: 13px !important;
+  min-width: auto !important;
+  padding: 0 14px !important;
+  font-size: 14px !important;
+  gap: 6px !important;
   white-space: nowrap !important;
 }
 
 /* ── מטרות מגע גדולות יותר ── */
-.tool-btn {
-  min-height: 46px !important;
-  font-size: 15px !important;
-  border-radius: 12px !important;
-}
-.btn, .btn-primary, .btn-install {
-  min-height: 52px !important;
-  font-size: 16px !important;
-  border-radius: 14px !important;
-}
+.tool-btn { min-height: 46px !important; font-size: 15px !important; border-radius: 12px !important; }
+.btn { min-height: 52px !important; font-size: 16px !important; border-radius: 14px !important; }
 .shift-card { padding: 14px !important; }
+
+/* ── סרגל הכלים התחתון: רשת קבועה במקום גלילה אופקית ── */
+/* גלילה מסתירה כפתורים מאחורי הקצה והמשתמש לא יודע שהם קיימים. */
+/* שלוש עמודות מציגות את כל השישה בשתי שורות, הכל גלוי בבת אחת. */
+nav.bottom-tools:not(#shortcuts-bar) {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 8px !important;
+  overflow-x: visible !important;
+  padding: 12px !important;
+}
+nav.bottom-tools:not(#shortcuts-bar) .tool-btn {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 5px !important;
+  min-height: 76px !important;
+  width: auto !important;
+  padding: 10px 4px !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+  line-height: 1.25 !important;
+  text-align: center !important;
+  border-radius: 14px !important;
+  white-space: normal !important;
+}
+nav.bottom-tools:not(#shortcuts-bar) .tool-btn i {
+  font-size: 26px !important;
+  color: #C1272D;
+  line-height: 1;
+}
+.tool-btn-danger i { color: #C1272D !important; }
 
 /* ── סרגל קיצורים כצ'יפים ── */
 #shortcuts-bar {
   display: flex !important;
   flex-wrap: wrap !important;
-  gap: 8px !important;
-  padding: 10px 12px !important;
+  gap: 10px !important;
+  padding: 12px !important;
+  grid-template-columns: none !important;
 }
 .sc-chip {
   display: inline-flex !important;
@@ -4987,13 +5036,14 @@ function injectDesignStyles() {
   background: #fff;
   border: 1.5px solid var(--border, #ddd);
   border-radius: 24px;
-  padding: 11px 16px;
+  padding: 12px 16px;
   font-size: 14px;
   font-family: inherit;
   font-weight: 600;
   color: var(--text-primary, #222);
   cursor: pointer;
   line-height: 1;
+  white-space: nowrap;
 }
 .sc-chip i { font-size: 19px; color: #C1272D; }
 .sc-chip.sc-add { border-style: dashed; color: #888; }
@@ -5002,10 +5052,10 @@ function injectDesignStyles() {
 .sc-wrap { position: relative; display: inline-flex; }
 .sc-del {
   position: absolute;
-  top: -6px;
-  left: -6px;
-  width: 24px;
-  height: 24px;
+  top: -7px;
+  left: -7px;
+  width: 25px;
+  height: 25px;
   border-radius: 50%;
   background: #C1272D;
   color: #fff;
@@ -5019,48 +5069,13 @@ function injectDesignStyles() {
   line-height: 1;
 }
 
-/* ── סרגל הכלים התחתון: שתי שורות קבועות במקום גלילה אופקית ── */
-/* גלילה אופקית מסתירה כפתורים מאחורי הקצה, והמשתמש לא יודע שהם שם. */
-/* רשת של 4 עמודות מציגה את הכל בבת אחת, בלי שבירת מילים באמצע. */
-.bottom-tools {
-  display: grid !important;
-  grid-template-columns: repeat(4, 1fr) !important;
-  gap: 8px !important;
-  overflow-x: visible !important;
-  padding: 12px !important;
-}
-.bottom-tools .tool-btn {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 5px !important;
-  min-height: 74px !important;
-  width: auto !important;
-  padding: 10px 4px !important;
-  font-size: 11.5px !important;
-  font-weight: 600 !important;
-  line-height: 1.25 !important;
-  text-align: center !important;
-  border-radius: 14px !important;
-  white-space: normal !important;
-  word-break: keep-all !important;
-}
-.bottom-tools .tool-btn i {
-  font-size: 25px !important;
-  color: #C1272D;
-  line-height: 1;
-}
-
-/* ── כותרת עליונה: אייקונים גדולים יותר ונשימה ביניהם ── */
-.app-header .tool-btn, header .tool-btn {
-  min-height: 42px !important;
-  min-width: 42px !important;
-  font-size: 19px !important;
-  padding: 6px !important;
-  border-radius: 11px !important;
-}
-`;
+/* ── כפתור ההוספה הצף ── */
+.fab {
+  width: 64px !important;
+  height: 64px !important;
+  font-size: 32px !important;
+  border-radius: 50% !important;
+}`;
   document.head.appendChild(st);
 }
 
@@ -5249,22 +5264,24 @@ document.addEventListener('DOMContentLoaded', () => {
 //  שונה בכל מכשיר ומטושטש בחלקם; אייקון וקטורי חד ואחיד בכל מסך.
 
 const BTN_ICONS = {
-  'check-issues-btn':   { icon: 'ti-search',          label: 'בדוק תקינות' },
-  'recalc-btn':         { icon: 'ti-refresh',         label: 'חשב מחדש' },
-  'clear-month-btn':    { icon: 'ti-eraser',          label: 'נקה חודש' },
-  'my-signature-btn':   { icon: 'ti-signature',       label: 'חתימה' },
-  'my-swaps-btn':       { icon: 'ti-arrows-exchange', label: 'החלפות' },
-  'my-guard-btn':       { icon: 'ti-shield-half',     label: 'אבטחות' },
-  'export-sheet-btn':   { icon: 'ti-file-export',     label: 'ייצוא' },
-  'send-admin-message-btn': { icon: 'ti-send',        label: 'הודעה' },
-  'enable-push-btn':    { icon: 'ti-bell',            label: 'התראות' },
-  'documents-btn':      { icon: 'ti-folder' },
-  'procedures-btn':     { icon: 'ti-clipboard-text' },
-  'admin-btn':          { icon: 'ti-settings' },
-  'team-btn':           { icon: 'ti-users' },
-  'shift-team-btn':     { icon: 'ti-users-group' },
-  'calendar-btn':       { icon: 'ti-calendar' },
-  'logout-btn':         { icon: 'ti-logout',          label: 'יציאה' }
+  'check-issues-btn':       { icon: 'ti-search',          label: 'בדוק תקינות' },
+  'recalc-btn':             { icon: 'ti-refresh',         label: 'חשב מחדש' },
+  'clear-month-btn':        { icon: 'ti-eraser',          label: 'נקה חודש' },
+  'my-signature-btn':       { icon: 'ti-signature',       label: 'חתימה' },
+  'my-swaps-btn':           { icon: 'ti-arrows-exchange', label: 'החלפות' },
+  'my-guard-btn':           { icon: 'ti-shield-half',     label: 'אבטחות' },
+  'help-btn-app':           { icon: 'ti-help-circle' },
+  'enable-push-btn':        { icon: 'ti-bell' },
+  'send-admin-message-btn': { icon: 'ti-send' },
+  'documents-btn':          { icon: 'ti-folder' },
+  'procedures-btn':         { icon: 'ti-clipboard-text' },
+  'team-btn':               { icon: 'ti-users' },
+  'shift-team-btn':         { icon: 'ti-users-group' },
+  'calendar-btn':           { icon: 'ti-calendar' },
+  'admin-btn':              { icon: 'ti-settings' },
+  'logout-btn':             { icon: 'ti-logout',          label: 'יציאה' },
+  'upload-doc-btn':         { icon: 'ti-file-upload',     label: 'העלאת מסמך חדש' },
+  'add-shift-btn':          { icon: 'ti-plus' }
 };
 
 function applyButtonIcons() {
