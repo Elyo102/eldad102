@@ -41,7 +41,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v71';
+const APP_VERSION = 'v72';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -4382,6 +4382,24 @@ async function openGuardCalendarModal() {
   await drawGuardCalendar(body);
 }
 
+// צבע לפי סוג האירוע. הקטגוריה נגזרת מהכותרת, כי הסידור לא מסמן
+// סוג בשדה נפרד. זה מה שהופך לוח עמוס לקריא במבט אחד.
+const GUARD_CATEGORIES = [
+  { key: 'אבטחה',    match: /אבטח/,                 color: '#C1272D', bg: '#FDECEC' },
+  { key: 'השתלמות',  match: /השתלמות|הדרכ|קורס/,    color: '#1860AD', bg: '#E8F1FB' },
+  { key: 'גיבוש',    match: /גיבוש|כנס|מפגש/,       color: '#1D7A5C', bg: '#E6F4EE' },
+  { key: 'אימון',    match: /אימון|תרגיל|סיור/,      color: '#7B3F9D', bg: '#F3EAF9' },
+  { key: 'אחר',      match: /.*/,                    color: '#6B6B6B', bg: '#F1F1F1' }
+];
+
+function guardCategory(title) {
+  const t = String(title || '');
+  for (let i = 0; i < GUARD_CATEGORIES.length; i++) {
+    if (GUARD_CATEGORIES[i].match.test(t)) return GUARD_CATEGORIES[i];
+  }
+  return GUARD_CATEGORIES[GUARD_CATEGORIES.length - 1];
+}
+
 async function drawGuardCalendar(body) {
   const bodyEl = body || document.querySelector('#guard-cal-modal .mp-body');
   if (!bodyEl) return;
@@ -4399,15 +4417,19 @@ async function drawGuardCalendar(body) {
   const m = guardState.month;
   const startOffset = new Date(m.getFullYear(), m.getMonth(), 1).getDay();
   const daysInMonth = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
+  const prevDays = new Date(m.getFullYear(), m.getMonth(), 0).getDate();
   const todayStr = new Date().toISOString().slice(0, 10);
 
-  // סטטיסטיקת החודש - נותנת לראש המשמרת תמונה מיידית
   const totalEvents = guardState.events.length;
   const unassigned = guardState.events.filter(e => !e.fighterCodes || e.fighterCodes.length === 0).length;
 
   let cells = '';
-  for (let i = 0; i < startOffset; i++) {
-    cells += '<div style="min-height:96px"></div>';
+
+  // ימי החודש הקודם באפור בהיר - משלימים את השבוע הראשון ומונעים
+  // מהלוח להיראות "שבור" בתחילתו
+  for (let i = startOffset - 1; i >= 0; i--) {
+    cells += '<div class="gcal-cell gcal-out"><div class="gcal-num">' +
+      (prevDays - i) + '</div></div>';
   }
 
   for (let d = 1; d <= daysInMonth; d++) {
@@ -4416,63 +4438,64 @@ async function drawGuardCalendar(body) {
     const dayEvents = guardState.events.filter(e => e.eventDate === dateStr);
     const isToday = dateStr === todayStr;
 
-    // כל אירוע מוצג בשמו בתוך התא, לא רק כמספר. ראש המשמרת רואה
-    // את החודש כולו במבט אחד בלי ללחוץ על כל יום בנפרד.
-    const chips = dayEvents.slice(0, 3).map(e => {
+    const chips = dayEvents.slice(0, 4).map(e => {
+      const cat = guardCategory(e.title);
       const noPeople = !e.fighterCodes || e.fighterCodes.length === 0;
-      return '<div style="font-size:10px;line-height:1.25;padding:3px 5px;margin-top:2px;' +
-        'border-radius:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
-        (noPeople
-          ? 'background:#FFE9E9;color:#C1272D;border:1px solid #F0B8B8'
-          : 'background:#E8F3EE;color:#1D7A5C;border:1px solid #BFE0D0') + '">' +
-        (noPeople ? '⚠ ' : '') + escapeHtml(e.title) + '</div>';
+      return '<div class="gcal-chip" style="background:' + cat.bg + ';color:' + cat.color +
+        ';border-right:3px solid ' + cat.color + '">' +
+        (e.startTime ? '<b>' + escapeHtml(e.startTime) + '</b> ' : '') +
+        escapeHtml(e.title) +
+        (noPeople ? ' <span style="color:#C1272D">⚠</span>' : '') + '</div>';
     }).join('');
 
-    const more = dayEvents.length > 3
-      ? '<div style="font-size:9px;color:#888;margin-top:2px">+' + (dayEvents.length - 3) + ' נוספים</div>'
-      : '';
+    const more = dayEvents.length > 4
+      ? '<div class="gcal-more">+' + (dayEvents.length - 4) + '</div>' : '';
 
-    cells += '<div class="guard-day" data-date="' + dateStr + '" ' +
-      'style="min-height:96px;border-radius:10px;padding:5px;cursor:pointer;' +
-      'display:flex;flex-direction:column;align-items:stretch;overflow:hidden;' +
-      (isToday
-        ? 'background:#FFF7F7;border:2px solid #C1272D'
-        : 'background:#fff;border:1px solid var(--border,#e2e2e2)') + '">' +
-      '<div style="font-size:15px;font-weight:800;text-align:center;' +
-      (isToday ? 'color:#C1272D' : '') + '">' + d + '</div>' +
-      chips + more + '</div>';
+    cells += '<div class="gcal-cell guard-day' + (isToday ? ' gcal-today' : '') +
+      '" data-date="' + dateStr + '">' +
+      '<div class="gcal-num">' + d + '</div>' + chips + more + '</div>';
   }
 
+  // השלמת השבוע האחרון
+  const filled = startOffset + daysInMonth;
+  const tail = (7 - (filled % 7)) % 7;
+  for (let i = 1; i <= tail; i++) {
+    cells += '<div class="gcal-cell gcal-out"><div class="gcal-num">' + i + '</div></div>';
+  }
+
+  const legend = GUARD_CATEGORIES.filter(c => c.key !== 'אחר').map(c =>
+    '<span class="gcal-leg"><i style="background:' + c.color + '"></i>' + c.key + '</span>'
+  ).join('');
+
   bodyEl.innerHTML =
-    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">' +
-    '<button id="guard-prev" class="tool-btn" style="width:auto;padding:8px 16px">‹</button>' +
-    '<div style="font-weight:800;font-size:18px">' +
-    MONTH_NAMES[m.getMonth()] + ' ' + m.getFullYear() + '</div>' +
-    '<button id="guard-next" class="tool-btn" style="width:auto;padding:8px 16px">›</button>' +
+    '<div class="gcal-wrap">' +
+
+    '<div class="gcal-head">' +
+    '<div class="gcal-nav">' +
+    '<button id="guard-prev" class="tool-btn" style="width:auto;padding:9px 17px">‹</button>' +
+    '<div class="gcal-title">' + MONTH_NAMES[m.getMonth()] + ' ' + m.getFullYear() + '</div>' +
+    '<button id="guard-next" class="tool-btn" style="width:auto;padding:9px 17px">›</button>' +
+    '</div>' +
+    '<div class="gcal-actions">' +
+    '<button id="guard-add" class="btn btn-primary" style="padding:11px 20px">+ הוסף אירוע</button>' +
+    '<button id="guard-import" class="tool-btn" style="width:auto;padding:11px 18px">ייבוא מהסידור</button>' +
+    '<button id="guard-load" class="tool-btn" style="width:auto;padding:11px 18px">חלוקת עומס</button>' +
+    '</div>' +
     '</div>' +
 
-    '<div style="display:flex;gap:8px;margin-bottom:12px;text-align:center">' +
-    '<div style="flex:1;background:var(--surface-1,#f5f5f5);border-radius:10px;padding:9px">' +
-    '<div style="font-size:22px;font-weight:800">' + totalEvents + '</div>' +
-    '<div style="font-size:11px;color:var(--text-muted)">אירועים החודש</div></div>' +
-    '<div style="flex:1;background:var(--surface-1,#f5f5f5);border-radius:10px;padding:9px">' +
-    '<div style="font-size:22px;font-weight:800;color:' +
-    (unassigned > 0 ? '#C1272D' : '#1D7A5C') + '">' + unassigned + '</div>' +
-    '<div style="font-size:11px;color:var(--text-muted)">ללא שיבוץ</div></div>' +
+    '<div class="gcal-stats">' +
+    '<div><b>' + totalEvents + '</b><span>אירועים החודש</span></div>' +
+    '<div><b style="color:' + (unassigned > 0 ? '#C1272D' : '#1D7A5C') + '">' +
+    unassigned + '</b><span>ללא שיבוץ</span></div>' +
+    '<div class="gcal-legend">' + legend + '</div>' +
     '</div>' +
 
-    '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center;' +
-    'font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:5px">' +
-    DAY_NAMES.map(d => '<div>' + d.slice(0, 1) + '</div>').join('') + '</div>' +
-    '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">' + cells + '</div>' +
+    '<div class="gcal-dows">' +
+    DAY_NAMES.map(d => '<div>' + d + '</div>').join('') + '</div>' +
+    '<div class="gcal-grid">' + cells + '</div>' +
 
-    '<div style="display:flex;gap:8px;margin-top:16px">' +
-    '<button id="guard-add" class="btn btn-primary" style="flex:1">רישום אבטחה</button>' +
-    '<button id="guard-load" class="tool-btn" style="flex:1;padding:12px">חלוקת עומס</button>' +
-    '</div>' +
-    '<button id="guard-import" class="tool-btn" style="width:100%;margin-top:8px;padding:11px">' +
-    'ייבוא אירועים מהסידור</button>' +
-    '<div id="guard-day-detail" style="margin-top:14px"></div>';
+    '<div id="guard-day-detail" class="gcal-detail"></div>' +
+    '</div>';
 
   document.getElementById('guard-prev').addEventListener('click', () => {
     guardState.month = new Date(m.getFullYear(), m.getMonth() - 1, 1);
@@ -4497,12 +4520,17 @@ async function drawGuardCalendar(body) {
   });
 
   bodyEl.querySelectorAll('.guard-day').forEach(cell => {
-    cell.addEventListener('click', () => showGuardDay(cell.dataset.date));
+    cell.addEventListener('click', () => {
+      bodyEl.querySelectorAll('.gcal-cell').forEach(c => c.classList.remove('gcal-sel'));
+      cell.classList.add('gcal-sel');
+      showGuardDay(cell.dataset.date);
+    });
   });
 
-  // פתיחה אוטומטית של היום הנוכחי, כדי שלא יראו מסך ריק מתחת ליומן
   if (m.getMonth() === new Date().getMonth() && m.getFullYear() === new Date().getFullYear()) {
     showGuardDay(todayStr);
+    const t = bodyEl.querySelector('.gcal-today');
+    if (t) t.classList.add('gcal-sel');
   }
 }
 
@@ -5317,9 +5345,107 @@ nav.bottom-tools:not(#shortcuts-bar) .tool-btn i {
 /* מודל במסך מלא - ליומן האבטחות, שצריך שטח אמיתי */
 .mp-fullscreen > div {
   max-width: 100% !important;
+  width: 100% !important;
   height: 100vh !important;
   max-height: 100vh !important;
   border-radius: 0 !important;
+  padding: 12px !important;
+}
+
+/* ── לוח שנה של אבטחות ── */
+.gcal-wrap { max-width: 1400px; margin: 0 auto; }
+
+.gcal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.gcal-nav { display: flex; align-items: center; gap: 10px; }
+.gcal-title { font-size: 22px; font-weight: 800; min-width: 150px; text-align: center; }
+.gcal-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.gcal-stats {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  background: var(--surface-1, #f6f5f3);
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+.gcal-stats > div { display: flex; flex-direction: column; align-items: center; min-width: 74px; }
+.gcal-stats b { font-size: 24px; font-weight: 800; line-height: 1.1; }
+.gcal-stats span { font-size: 11.5px; color: var(--text-muted, #777); }
+
+.gcal-legend { flex: 1; display: flex; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+.gcal-leg { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: #555; }
+.gcal-leg i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+
+.gcal-dows {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted, #888);
+  margin-bottom: 6px;
+}
+.gcal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; }
+
+.gcal-cell {
+  min-height: 112px;
+  border: 1px solid var(--border, #e4e4e4);
+  border-radius: 10px;
+  background: #fff;
+  padding: 5px;
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow .12s, border-color .12s;
+}
+.gcal-cell:hover { border-color: #C1272D; }
+.gcal-out { background: #FAFAFA; opacity: .45; cursor: default; }
+.gcal-out:hover { border-color: var(--border, #e4e4e4); }
+.gcal-num { font-size: 15px; font-weight: 800; text-align: center; margin-bottom: 3px; }
+.gcal-today { border: 2px solid #C1272D; background: #FFFBFB; }
+.gcal-today .gcal-num { color: #C1272D; }
+.gcal-sel { box-shadow: 0 0 0 3px rgba(193,39,45,.25); }
+
+.gcal-chip {
+  font-size: 10.5px;
+  line-height: 1.3;
+  padding: 3px 5px;
+  margin-bottom: 3px;
+  border-radius: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.gcal-more { font-size: 10px; color: #999; text-align: center; }
+.gcal-detail { margin-top: 16px; }
+
+/* במסך צר התאים נמוכים יותר והצ'יפים מתכווצים לפס צבע בלבד */
+@media (max-width: 640px) {
+  .gcal-cell { min-height: 62px; padding: 3px; }
+  .gcal-num { font-size: 13px; }
+  .gcal-chip {
+    font-size: 0;
+    height: 5px;
+    padding: 0;
+    margin-bottom: 2px;
+    border-radius: 3px;
+  }
+  .gcal-title { font-size: 18px; min-width: 110px; }
+  .gcal-actions { width: 100%; }
+  .gcal-actions button { flex: 1; }
+  .gcal-legend { justify-content: flex-start; }
 }
 
 .ds-handle {
