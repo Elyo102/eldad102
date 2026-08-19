@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v47';
+const APP_VERSION = 'v48';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -221,17 +221,37 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
   flushOfflineQueue();
   renderShortcutsBar();
   startPersonalAlertsPolling();
+  refreshMissedPunchUi();
+  if (state.isAdmin) loadFixProposals();
 }
 
-// בדיקה תקופתית אוטומטית של התראות אישיות - בלי זה, מי שלא הפעיל/ה
-// Push (או שה-Push לא הגיע מכל סיבה) לא רואה שום דבר חדש עד שירעננו
-// ידנית. כל 30 שניות זה מספיק תכוף בלי להעמיס יתר על המידה על השרת.
+// רענון אוטומטי כל 90 שניות, אבל רק כשהמסך באמת פעיל. אם האפליקציה
+// ברקע או המסך כבוי - מדלגים, כדי לא לשרוף מכסת קריאות לשרת על
+// משתמש שלא מסתכל. בחזרה למסך - רענון מיידי, בלי להמתין למחזור הבא,
+// כך שהתחושה מהירה יותר מרענון קבוע ולא איטית יותר.
 let personalAlertsPollInterval = null;
+let visibilityListenerAttached = false;
+
 function startPersonalAlertsPolling() {
   if (personalAlertsPollInterval) clearInterval(personalAlertsPollInterval);
+
   personalAlertsPollInterval = setInterval(() => {
+    if (document.hidden) return;
     loadPersonalAlerts();
-  }, 30000);
+    refreshMissedPunchUi();
+  }, 90000);
+
+  // רישום פעם אחת בלבד. בלי השמירה הזו כל התחברות מחדש הייתה מוסיפה
+  // מאזין נוסף, וכל חזרה למסך הייתה מייצרת קריאות כפולות.
+  if (!visibilityListenerAttached) {
+    visibilityListenerAttached = true;
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && state.code) {
+        loadPersonalAlerts();
+        refreshMissedPunchUi();
+      }
+    });
+  }
 }
 
 $('login-form').addEventListener('submit', async (e) => {
@@ -1601,7 +1621,7 @@ function renderDocList(listEl, emptyEl, docs, allowSign, allowReject, rejectTarg
         ${allowEmailSelect ? `<input type="checkbox" class="doc-email-select-checkbox" data-url="${escapeHtml(d.url)}" ${docEmailSelectedUrls.has(d.url) ? 'checked' : ''} style="width:17px;height:17px;cursor:pointer;margin-top:3px">` : ''}
         <div>
           <div class="shift-type">${d.name.indexOf('🔒 ') === 0 ? '🔒 ' + escapeHtml(d.name.slice(2)) : escapeHtml(d.name)}</div>
-          <div class="shift-time">${formatDocDate(d.date)}</div>
+          <div class="shift-time">${formatDocDate(d.date)}${d.sentBy ? ' · מאת ' + escapeHtml(d.sentBy) : ''}${d.sentTo ? ' · אל ' + escapeHtml(d.sentTo) : ''}</div>
         </div>
       </div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -1835,6 +1855,30 @@ $('signature-save-btn').addEventListener('click', async () => {
   const base64 = dataUrl.split(',')[1];
   try {
     let res;
+    // שני מצבי החתימה של טופס אי החתמה - כל אחד סוגר את המודל שלו
+    // ומרענן את התצוגה המתאימה, ולכן יוצא מוקדם ולא ממשיך למטה.
+    if (signatureMode === 'missedpunch-employee') {
+      res = await callApi('POST', 'submitMissedPunchReport', {
+        code: state.code, reportId: missedPunchActiveId, signatureBase64: base64
+      });
+      $('signature-modal').classList.add('hidden');
+      closeMpModal('mp-employee-modal');
+      signatureMode = 'personal';
+      showToast(res.message || 'הטופס נשלח לאישור ראש המשמרת');
+      refreshMissedPunchUi();
+      return;
+    }
+    if (signatureMode === 'missedpunch-commander') {
+      res = await callApi('POST', 'commanderApproveMissedPunch', {
+        code: state.code, reportId: missedPunchActiveId, signatureBase64: base64
+      });
+      $('signature-modal').classList.add('hidden');
+      closeMpModal('mp-commander-modal');
+      signatureMode = 'personal';
+      showToast(res.message || 'הטופס אושר ונשלח למשאבי אנוש');
+      openCommanderMissedPunchModal();
+      return;
+    }
     if (signatureMode === 'commander') {
       res = await callApi('POST', 'commanderSignHourReports', {
         commanderCode: state.code, targetCodes: Array.from(shiftTeamSelectedCodes), signatureBase64: base64
@@ -2229,7 +2273,9 @@ const AVAILABLE_SHORTCUTS = [
   { id: 'broadcast_all', label: '📢 הודעה לכולם' },
   { id: 'add_manager', label: '👤 הוסף מנהל/ת צוות' },
   { id: 'upload_procedure', label: '📋 העלאת נוהל/מסמך' },
-  { id: 'confirmable_broadcast', label: '✅ קרא וחתום' }
+  { id: 'confirmable_broadcast', label: '✅ קרא וחתום' },
+  { id: 'missed_punch', label: '📝 דוחות אי החתמה' },
+  { id: 'create_missed_punch', label: '⚠️ פתיחת דוח אי החתמה' }
 ];
 
 function getMyShortcuts() {
@@ -2309,6 +2355,10 @@ function triggerShortcut(id) {
     $('admin-upload-procedure-btn').click();
   } else if (id === 'confirmable_broadcast') {
     openConfirmableBroadcastModal();
+  } else if (id === 'missed_punch') {
+    openCommanderMissedPunchModal();
+  } else if (id === 'create_missed_punch') {
+    openCreateMissedPunchModal();
   }
 }
 
@@ -2688,5 +2738,410 @@ $('close-broadcast-status-modal').addEventListener('click', () => {
   currentBroadcastId = null;
 });
 $('broadcast-status-refresh-btn').addEventListener('click', refreshBroadcastStatus);
+
+
+// =====================================================================
+//  אי החתמת כרטיס + הצעות תיקון
+// =====================================================================
+//  כל ה-DOM כאן נבנה דינמית מתוך JS ולא ב-index.html, כדי שהוספת
+//  הפיצ'רים האלה לא תדרוש שינוי במבנה ה-HTML הקיים.
+// =====================================================================
+
+let missedPunchActiveId = null;
+let missedPunchActiveRows = [];
+
+function mpModal(id, title) {
+  let el = document.getElementById(id);
+  if (el) {
+    el.querySelector('.mp-title').textContent = title;
+    el.classList.remove('hidden');
+    return el.querySelector('.mp-body');
+  }
+  el = document.createElement('div');
+  el.id = id;
+  el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9000;' +
+    'display:flex;align-items:flex-end;justify-content:center';
+  el.innerHTML =
+    '<div style="background:#fff;width:100%;max-width:640px;max-height:88vh;overflow:auto;' +
+    'border-radius:18px 18px 0 0;padding:18px">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
+    '<div class="mp-title" style="font-weight:800;font-size:17px"></div>' +
+    '<button class="mp-close" style="border:none;background:none;font-size:26px;' +
+    'cursor:pointer;line-height:1;padding:0 6px">×</button></div>' +
+    '<div class="mp-body"></div></div>';
+  document.body.appendChild(el);
+  el.querySelector('.mp-close').addEventListener('click', () => el.classList.add('hidden'));
+  el.addEventListener('click', (ev) => { if (ev.target === el) el.classList.add('hidden'); });
+  el.querySelector('.mp-title').textContent = title;
+  return el.querySelector('.mp-body');
+}
+
+function closeMpModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.classList.add('hidden');
+}
+
+function mpDateLabel(d) {
+  if (!d) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    const p = d.split('-');
+    return p[2] + '/' + p[1] + '/' + p[0];
+  }
+  return d;
+}
+
+// ---------------------------------------------------------------------
+//  כבאי - כרטיס בדאשבורד + טופס מילוי
+// ---------------------------------------------------------------------
+
+function mpBanner() {
+  let el = document.getElementById('mp-employee-banner');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'mp-employee-banner';
+  el.className = 'hidden';
+  el.style.cssText = 'margin:12px 0';
+  const anchor = document.getElementById('personal-alerts-section');
+  if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(el, anchor);
+  else document.getElementById('screen-app').prepend(el);
+  return el;
+}
+
+async function refreshMissedPunchUi() {
+  if (!state.code || state.isHr) return;
+  const banner = mpBanner();
+  try {
+    const res = await apiGet('listMyMissedPunchReports', { code: state.code });
+    const reports = (res && res.reports) || [];
+    if (reports.length === 0) {
+      banner.classList.add('hidden');
+      banner.innerHTML = '';
+      return;
+    }
+    banner.classList.remove('hidden');
+    banner.innerHTML = reports.map(r =>
+      '<div class="alert-card" style="margin-bottom:8px">' +
+      '<div style="font-weight:800;color:var(--danger)">⚠️ טופס אי החתמת כרטיס</div>' +
+      '<div style="font-size:13px;margin-top:3px">' +
+      r.rows.length + ' תאריכים · ' + escapeHtml(r.monthKey || '') +
+      ' · נפתח על ידי ' + escapeHtml(r.createdBy || '') + '</div>' +
+      (r.rejectReason
+        ? '<div style="font-size:13px;margin-top:5px;color:var(--danger)">הוחזר לתיקון: ' +
+          escapeHtml(r.rejectReason) + '</div>'
+        : '') +
+      '<div style="font-size:12.5px;margin-top:4px;color:var(--text-muted)">' +
+      escapeHtml(r.status) + '</div>' +
+      (r.status === 'ממתין לאישור מפקד' ? '' :
+        '<button class="tool-btn mp-open-btn" data-id="' + escapeHtml(r.id) +
+        '" style="width:auto;padding:7px 14px;margin-top:9px;font-weight:700">מלא את הטופס</button>') +
+      '</div>'
+    ).join('');
+  } catch (e) {
+    // כשל בטעינה לא אמור להקפיץ שגיאה בולטת - זה לא חוסם שום דבר אחר
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.mp-open-btn');
+  if (btn) openEmployeeMissedPunchModal(btn.dataset.id);
+});
+
+async function openEmployeeMissedPunchModal(reportId) {
+  try {
+    const res = await callApi('GET', 'listMyMissedPunchReports', { code: state.code });
+    const report = (res.reports || []).find(r => r.id === reportId);
+    if (!report) { showToast('הדוח לא נמצא'); return; }
+    missedPunchActiveId = reportId;
+    missedPunchActiveRows = report.rows || [];
+    renderEmployeeMissedPunchRows(report);
+  } catch (err) {
+    showToast(err.message || 'שגיאה בטעינת הטופס');
+  }
+}
+
+function renderEmployeeMissedPunchRows(report) {
+  const body = mpModal('mp-employee-modal', 'טופס אי החתמת כרטיס — ' + (report.monthKey || ''));
+  body.innerHTML =
+    '<div style="font-size:13.5px;color:var(--text-muted);line-height:1.6;margin-bottom:12px">' +
+    'לכל תאריך יש למלא שעת כניסה, שעת יציאה והסבר מנומק. ' +
+    'לחיצה על שורה פותחת אותה למילוי.</div>' +
+    '<div id="mp-rows"></div>' +
+    '<div id="mp-employee-error" class="hidden" style="color:var(--danger);' +
+    'font-size:13.5px;margin:10px 0"></div>' +
+    '<button id="mp-sign-btn" class="btn btn-primary" style="width:100%;margin-top:14px">' +
+    'חתום ושלח לאישור ראש המשמרת</button>';
+
+  drawMpRows();
+
+  document.getElementById('mp-sign-btn').addEventListener('click', async () => {
+    const errBox = document.getElementById('mp-employee-error');
+    const missing = missedPunchActiveRows.filter(r => !r.entry || !r.exit || !String(r.reason || '').trim());
+    if (missing.length > 0) {
+      errBox.textContent = 'חסרים פרטים ב-' + missing.length + ' תאריכים. יש למלא כניסה, יציאה והסבר לכל שורה.';
+      errBox.classList.remove('hidden');
+      return;
+    }
+    errBox.classList.add('hidden');
+    try {
+      await callApi('POST', 'saveMissedPunchRows', {
+        code: state.code, reportId: missedPunchActiveId, rows: missedPunchActiveRows
+      });
+      signatureMode = 'missedpunch-employee';
+      openSignatureModal('טופס אי החתמת כרטיס');
+    } catch (err) {
+      errBox.textContent = err.message || 'שגיאה בשמירה';
+      errBox.classList.remove('hidden');
+    }
+  });
+}
+
+function drawMpRows() {
+  const wrap = document.getElementById('mp-rows');
+  if (!wrap) return;
+  wrap.innerHTML = missedPunchActiveRows.map((r, i) => {
+    const done = r.entry && r.exit && String(r.reason || '').trim();
+    return '<div class="shift-card mp-row" data-idx="' + i + '" style="cursor:pointer;' +
+      'border-right:6px solid ' + (done ? 'var(--success,#2e7d32)' : 'var(--danger,#c62828)') + '">' +
+      '<div class="shift-details"><div class="shift-type">' + mpDateLabel(r.date) +
+      (done ? ' ✓' : '') + '</div>' +
+      '<div class="shift-time">' +
+      (done ? escapeHtml(r.entry) + ' - ' + escapeHtml(r.exit) : 'טרם מולא') + '</div>' +
+      (r.reason ? '<div class="shift-notes">' + escapeHtml(r.reason) + '</div>' : '') +
+      '</div></div>';
+  }).join('');
+
+  wrap.querySelectorAll('.mp-row').forEach(row => {
+    row.addEventListener('click', () => openMpRowEditor(Number(row.dataset.idx)));
+  });
+}
+
+function openMpRowEditor(idx) {
+  const r = missedPunchActiveRows[idx];
+  const body = mpModal('mp-row-modal', 'מילוי ' + mpDateLabel(r.date));
+  body.innerHTML =
+    '<label class="form-label" style="display:block;margin-bottom:4px">שעת כניסה</label>' +
+    '<input id="mp-row-entry" type="time" value="' + (r.entry || '') + '" ' +
+    'style="width:100%;padding:11px;font-size:16px;border:1px solid var(--border,#ccc);' +
+    'border-radius:8px;margin-bottom:12px">' +
+    '<label class="form-label" style="display:block;margin-bottom:4px">שעת יציאה</label>' +
+    '<input id="mp-row-exit" type="time" value="' + (r.exit || '') + '" ' +
+    'style="width:100%;padding:11px;font-size:16px;border:1px solid var(--border,#ccc);' +
+    'border-radius:8px;margin-bottom:12px">' +
+    '<label class="form-label" style="display:block;margin-bottom:4px">הסבר מנומק</label>' +
+    '<textarea id="mp-row-reason" rows="4" placeholder="לדוגמה: יציאה לאירוע מבצעי בשעת הכניסה" ' +
+    'style="width:100%;padding:11px;font-size:16px;border:1px solid var(--border,#ccc);' +
+    'border-radius:8px;resize:vertical">' + (r.reason || '') + '</textarea>' +
+    '<button id="mp-row-save" class="btn btn-primary" style="width:100%;margin-top:14px">שמור</button>';
+
+  document.getElementById('mp-row-save').addEventListener('click', () => {
+    missedPunchActiveRows[idx] = {
+      date: r.date,
+      entry: document.getElementById('mp-row-entry').value,
+      exit: document.getElementById('mp-row-exit').value,
+      reason: document.getElementById('mp-row-reason').value.trim()
+    };
+    closeMpModal('mp-row-modal');
+    drawMpRows();
+  });
+}
+
+// ---------------------------------------------------------------------
+//  ראש משמרת - קיצור דרך לדוחות הממתינים
+// ---------------------------------------------------------------------
+
+async function openCommanderMissedPunchModal() {
+  const body = mpModal('mp-commander-modal', 'דוחות אי החתמה ממתינים');
+  body.innerHTML = '<div class="empty-state">טוען...</div>';
+  try {
+    const res = await callApi('GET', 'commanderListMissedPunch', { code: state.code });
+    const reports = res.reports || [];
+    if (reports.length === 0) {
+      body.innerHTML = '<div class="empty-state">אין דוחות הממתינים לאישורך</div>';
+      return;
+    }
+    body.innerHTML = reports.map(r =>
+      '<div class="shift-card" style="flex-direction:column;align-items:stretch">' +
+      '<div style="font-weight:800;font-size:15px">' + escapeHtml(r.empName) + '</div>' +
+      '<div style="font-size:13px;color:var(--text-muted);margin-top:2px">' +
+      escapeHtml(r.monthKey || '') + ' · ' + r.rows.length + ' תאריכים</div>' +
+      '<div style="margin-top:8px;font-size:13.5px;line-height:1.7">' +
+      r.rows.map(x =>
+        '<div>· <b>' + mpDateLabel(x.date) + '</b> ' + escapeHtml(x.entry || '') + '-' +
+        escapeHtml(x.exit || '') + ' — ' + escapeHtml(x.reason || '') + '</div>'
+      ).join('') + '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
+      '<button class="tool-btn mp-approve-btn" data-id="' + escapeHtml(r.id) +
+      '" style="width:auto;padding:8px 14px;font-weight:700">אשר וחתום</button>' +
+      '<button class="tool-btn mp-reject-btn" data-id="' + escapeHtml(r.id) +
+      '" style="width:auto;padding:8px 14px;color:var(--danger)">דחה</button>' +
+      '</div></div>'
+    ).join('');
+
+    body.querySelectorAll('.mp-approve-btn').forEach(b => {
+      b.addEventListener('click', () => {
+        missedPunchActiveId = b.dataset.id;
+        signatureMode = 'missedpunch-commander';
+        openSignatureModal('אישור טופס אי החתמה');
+      });
+    });
+
+    body.querySelectorAll('.mp-reject-btn').forEach(b => {
+      b.addEventListener('click', async () => {
+        const reason = prompt('נימוק לדחייה (יישלח לעובד):');
+        if (reason === null) return;
+        if (!reason.trim()) { showToast('חובה לציין נימוק'); return; }
+        try {
+          const res2 = await callApi('POST', 'commanderRejectMissedPunch', {
+            code: state.code, reportId: b.dataset.id, reason
+          });
+          showToast(res2.message || 'הטופס הוחזר לעובד');
+          openCommanderMissedPunchModal();
+        } catch (err) {
+          showToast(err.message || 'שגיאה בדחייה');
+        }
+      });
+    });
+  } catch (err) {
+    body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
+}
+
+// ---------------------------------------------------------------------
+//  HR - פתיחת דוח אי החתמה לעובד
+// ---------------------------------------------------------------------
+
+async function openCreateMissedPunchModal() {
+  const body = mpModal('mp-create-modal', 'פתיחת דוח אי החתמה');
+  body.innerHTML = '<div class="empty-state">טוען רשימת עובדים...</div>';
+  try {
+    const res = await callApi('GET', 'adminListUsers', { code: state.code });
+    const users = (res.users || []).filter(u => !u.isAdmin);
+    body.innerHTML =
+      '<label class="form-label" style="display:block;margin-bottom:4px">עובד</label>' +
+      '<select id="mp-create-user" style="width:100%;padding:11px;font-size:16px;' +
+      'border:1px solid var(--border,#ccc);border-radius:8px;margin-bottom:12px">' +
+      users.map(u => '<option value="' + escapeHtml(u.code) + '">' +
+        escapeHtml(u.name) + '</option>').join('') + '</select>' +
+      '<label class="form-label" style="display:block;margin-bottom:4px">חודש</label>' +
+      '<input id="mp-create-month" type="month" value="' + monthKeyOf(new Date()) + '" ' +
+      'style="width:100%;padding:11px;font-size:16px;border:1px solid var(--border,#ccc);' +
+      'border-radius:8px;margin-bottom:12px">' +
+      '<label class="form-label" style="display:block;margin-bottom:4px">' +
+      'תאריכים ללא החתמה</label>' +
+      '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:6px">' +
+      'תאריך אחד בכל שורה, בפורמט 2026-08-03</div>' +
+      '<textarea id="mp-create-dates" rows="5" style="width:100%;padding:11px;font-size:16px;' +
+      'border:1px solid var(--border,#ccc);border-radius:8px;resize:vertical"></textarea>' +
+      '<div id="mp-create-error" class="hidden" style="color:var(--danger);' +
+      'font-size:13.5px;margin-top:10px"></div>' +
+      '<button id="mp-create-submit" class="btn btn-primary" ' +
+      'style="width:100%;margin-top:14px">שלח לעובד</button>';
+
+    document.getElementById('mp-create-submit').addEventListener('click', async () => {
+      const errBox = document.getElementById('mp-create-error');
+      const targetCode = document.getElementById('mp-create-user').value;
+      const monthKey = document.getElementById('mp-create-month').value;
+      const dates = document.getElementById('mp-create-dates').value
+        .split('\n').map(x => x.trim()).filter(Boolean);
+      if (dates.length === 0) {
+        errBox.textContent = 'יש להזין לפחות תאריך אחד';
+        errBox.classList.remove('hidden');
+        return;
+      }
+      try {
+        const r = await callApi('POST', 'hrCreateMissedPunchReport', {
+          hrCode: state.code, targetCode, monthKey, dates
+        });
+        showToast(r.message || 'הדוח נשלח');
+        closeMpModal('mp-create-modal');
+      } catch (err) {
+        errBox.textContent = err.message || 'שגיאה ביצירת הדוח';
+        errBox.classList.remove('hidden');
+      }
+    });
+  } catch (err) {
+    body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
+}
+
+// ---------------------------------------------------------------------
+//  מנהל-על - הצעות תיקון אוטומטיות הממתינות לאישור
+// ---------------------------------------------------------------------
+
+async function loadFixProposals() {
+  if (!state.isAdmin) return;
+  let el = document.getElementById('fix-proposals-section');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'fix-proposals-section';
+    el.className = 'hidden';
+    el.style.cssText = 'margin:12px 0';
+    const anchor = document.getElementById('open-alerts-section');
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(el, anchor);
+    else document.getElementById('screen-admin').prepend(el);
+  }
+
+  try {
+    const res = await apiGet('listPendingProposals', { code: state.code });
+    const items = (res && res.proposals) || [];
+    if (items.length === 0) {
+      el.classList.add('hidden');
+      el.innerHTML = '';
+      return;
+    }
+    el.classList.remove('hidden');
+    el.innerHTML =
+      '<div class="stats-card-title" style="margin-bottom:8px">' +
+      '🔧 הצעות תיקון ממתינות (' + items.length + ')</div>' +
+      items.map(p =>
+        '<div class="alert-card" style="margin-bottom:8px">' +
+        '<div style="font-weight:800">' + escapeHtml(p.type) + ' — ' +
+        escapeHtml(p.sheetName) + ', יום ' + escapeHtml(String(p.day)) + '</div>' +
+        '<div style="font-size:13px;margin-top:5px">' +
+        '<b>נוכחי:</b> ' + escapeHtml(String(p.currentValue || '(ריק)')) + '</div>' +
+        '<div style="font-size:13px;margin-top:2px">' +
+        '<b>מוצע:</b> ' + escapeHtml(String(p.proposedValue || '(ריקון)')) + '</div>' +
+        '<div style="font-size:12.5px;margin-top:5px;color:var(--text-muted)">' +
+        escapeHtml(p.reason || '') + '</div>' +
+        '<div style="display:flex;gap:8px;margin-top:10px">' +
+        '<button class="tool-btn fix-approve-btn" data-id="' + escapeHtml(p.id) +
+        '" style="width:auto;padding:7px 14px;font-weight:700">אשר תיקון</button>' +
+        '<button class="tool-btn fix-reject-btn" data-id="' + escapeHtml(p.id) +
+        '" style="width:auto;padding:7px 14px;color:var(--danger)">דחה</button>' +
+        '</div></div>'
+      ).join('');
+  } catch (e) {
+    // לא חוסם שום דבר אחר במסך
+  }
+}
+
+document.addEventListener('click', async (e) => {
+  const approveBtn = e.target.closest('.fix-approve-btn');
+  if (approveBtn) {
+    if (!confirm('לאשר את התיקון? הנתון הנוכחי ישתנה, והשינוי יירשם ביומן השינויים.')) return;
+    try {
+      const r = await callApi('POST', 'approveProposal', {
+        code: state.code, proposalId: approveBtn.dataset.id
+      });
+      showToast(r.message || 'התיקון בוצע');
+      loadFixProposals();
+    } catch (err) {
+      showToast(err.message || 'שגיאה באישור');
+    }
+    return;
+  }
+  const rejectBtn = e.target.closest('.fix-reject-btn');
+  if (rejectBtn) {
+    try {
+      const r = await callApi('POST', 'rejectProposal', {
+        code: state.code, proposalId: rejectBtn.dataset.id
+      });
+      showToast(r.message || 'ההצעה נדחתה');
+      loadFixProposals();
+    } catch (err) {
+      showToast(err.message || 'שגיאה בדחייה');
+    }
+  }
+});
 
 tryAutoLogin();
