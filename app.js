@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v55';
+const APP_VERSION = 'v58';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -482,7 +482,7 @@ function renderAdminUserCard(u) {
         קוד: ${u.codeHidden ? '••••' : escapeHtml(u.code)} · ${rel.label} · ${hoursLabel} שעות החודש
       </div>
       <div style="font-size:12.5px;margin-top:2px;color:${isActive ? 'var(--success)' : 'var(--danger)'}">
-        ${isActive ? 'פעיל' : 'לא פעיל'} ${u.isHr ? '· HR' : (u.isManager ? '· מנהל/ת צוות' : '')} ${u.shiftTeam ? '· ' + u.shiftTeam : ''} ${u.messagingBlocked ? '· חסום משליחת הודעות' : ''}
+        ${isActive ? 'פעיל' : 'לא פעיל'} ${u.position ? '· ' + escapeHtml(u.position) : ''} ${u.isHr ? '· HR' : ''} ${u.shiftTeam ? '· ' + u.shiftTeam : ''} ${u.messagingBlocked ? '· חסום משליחת הודעות' : ''}
       </div>
     </div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
@@ -491,9 +491,9 @@ function renderAdminUserCard(u) {
       <button class="tool-btn admin-message-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">שלח הודעה</button>
       ${u.isAdmin ? '' : `<button class="tool-btn admin-block-msg-btn" data-code="${escapeHtml(u.code)}" data-blocked="${u.messagingBlocked ? '1' : '0'}" style="width:auto;padding:6px 12px${u.messagingBlocked ? ';color:var(--danger)' : ''}">${u.messagingBlocked ? 'בטל חסימת הודעות' : 'חסום הודעות'}</button>`}
       ${(u.isAdmin || !state.isAdmin) ? '' : `
-        <button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-role="manager" style="width:auto;padding:6px 12px${u.role === 'manager' ? ';font-weight:700' : ''}">מנהל/ת צוות</button>
+        <button class="tool-btn admin-position-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" data-position="${escapeHtml(u.position || '')}" style="width:auto;padding:6px 12px${u.position ? ';font-weight:700' : ''}">${u.position ? escapeHtml(u.position) : 'הגדר תפקיד'}</button>
         <button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-role="hr" style="width:auto;padding:6px 12px${u.role === 'hr' ? ';font-weight:700' : ''}">HR</button>
-        ${u.role ? `<button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-role="" style="width:auto;padding:6px 12px;color:var(--text-muted)">הסר תפקיד</button>` : ''}
+        ${u.role === 'hr' ? `<button class="tool-btn admin-role-btn" data-code="${escapeHtml(u.code)}" data-role="" style="width:auto;padding:6px 12px;color:var(--text-muted)">הסר HR</button>` : ''}
       `}
       <button class="tool-btn admin-docs-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">מסמכים</button>
       <button class="tool-btn admin-reminder-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">תזכורת</button>
@@ -556,6 +556,12 @@ $('admin-users-list').addEventListener('click', async (e) => {
   const resendBtn = e.target.closest('.admin-resend-btn');
   const msgBtn = e.target.closest('.admin-message-btn');
   const blockMsgBtn = e.target.closest('.admin-block-msg-btn');
+  const positionBtn = e.target.closest('.admin-position-btn');
+  if (positionBtn) {
+    openPositionPicker(positionBtn.dataset.code, positionBtn.dataset.name, positionBtn.dataset.position);
+    return;
+  }
+
   const roleBtn = e.target.closest('.admin-role-btn');
   const docsBtn = e.target.closest('.admin-docs-btn');
   const reminderBtn = e.target.closest('.admin-reminder-btn');
@@ -1900,6 +1906,18 @@ $('signature-save-btn').addEventListener('click', async () => {
       openHourSignModal();
       return;
     }
+    if (signatureMode === 'missedpunch-bulk') {
+      $('signature-modal').classList.add('hidden');
+      signatureMode = 'personal';
+      const ids = Array.from(mpCommanderSelected);
+      const r = await callApi('POST', 'commanderBulkApproveMissedPunch', {
+        code: state.code, reportIds: ids, signatureBase64: base64
+      });
+      await fadeOutSelectedCards(ids, 'נשלח אל ליסה בהצלחה');
+      showToast(r.message || 'הטפסים אושרו');
+      openCommanderMissedPunchModal();
+      return;
+    }
     if (signatureMode === 'missedpunch-employee') {
       res = await callApi('POST', 'submitMissedPunchReport', {
         code: state.code, reportId: missedPunchActiveId, signatureBase64: base64
@@ -3025,9 +3043,13 @@ function openMpRowEditor(idx) {
 //  ראש משמרת - קיצור דרך לדוחות הממתינים
 // ---------------------------------------------------------------------
 
+const mpCommanderSelected = new Set();
+
 async function openCommanderMissedPunchModal() {
   const body = mpModal('mp-commander-modal', 'דוחות אי החתמה ממתינים');
   body.innerHTML = '<div class="empty-state">טוען...</div>';
+  mpCommanderSelected.clear();
+
   try {
     const res = await callApi('GET', 'commanderListMissedPunch', { code: state.code });
     const reports = res.reports || [];
@@ -3035,16 +3057,41 @@ async function openCommanderMissedPunchModal() {
       body.innerHTML = '<div class="empty-state">אין דוחות הממתינים לאישורך</div>';
       return;
     }
-    body.innerHTML = reports.map(r =>
-      '<div class="shift-card" style="flex-direction:column;align-items:stretch">' +
-      '<div style="font-weight:800;font-size:15px">' + escapeHtml(r.empName) + '</div>' +
+
+    body.innerHTML =
+      '<div style="display:flex;gap:8px;margin-bottom:10px">' +
+      '<button id="mp-select-all" class="tool-btn" style="flex:1;padding:9px">סמן הכל</button>' +
+      '<button id="mp-clear-all" class="tool-btn" style="flex:1;padding:9px">נקה בחירה</button>' +
+      '</div>' +
+      '<div id="mp-cards"></div>' +
+      '<div id="mp-bulk-bar" class="hidden" style="position:sticky;bottom:0;background:#fff;' +
+      'padding:10px 0 4px;border-top:1px solid var(--border,#ddd);margin-top:10px">' +
+      '<div id="mp-bulk-count" style="text-align:center;font-size:13.5px;' +
+      'color:var(--text-muted);margin-bottom:8px"></div>' +
+      '<div style="display:flex;gap:8px">' +
+      '<button id="mp-bulk-approve" class="btn btn-primary" style="flex:1">אשר וחתום</button>' +
+      '<button id="mp-bulk-reject" class="tool-btn" ' +
+      'style="flex:1;color:var(--danger)">דחה</button>' +
+      '</div></div>';
+
+    document.getElementById('mp-cards').innerHTML = reports.map(r =>
+      '<div class="shift-card mp-report-card" data-id="' + escapeHtml(r.id) + '" ' +
+      'style="flex-direction:column;align-items:stretch">' +
+      '<div style="display:flex;align-items:flex-start;gap:10px">' +
+      '<input type="checkbox" class="mp-select" data-id="' + escapeHtml(r.id) + '" ' +
+      'style="width:19px;height:19px;cursor:pointer;margin-top:2px">' +
+      '<div style="flex:1">' +
+      '<div style="font-weight:800;font-size:15px">' + escapeHtml(r.empName) +
+      (r.orphan ? ' <span style="font-size:11px;color:var(--danger)">⚠️ ללא שיוך משמרת</span>' : '') +
+      '</div>' +
       '<div style="font-size:13px;color:var(--text-muted);margin-top:2px">' +
       escapeHtml(r.monthKey || '') + ' · ' + r.rows.length + ' תאריכים</div>' +
+      '</div></div>' +
       '<div style="margin-top:8px;font-size:13.5px;line-height:1.7">' +
       r.rows.map(x =>
-        '<div>· <b>' + mpDateLabel(x.date) + '</b> ' + escapeHtml(x.entry || '') + '-' +
-        escapeHtml(x.exit || '') + ' — ' + escapeHtml(x.reason || '') + '</div>'
-      ).join('') + '</div>' +
+        '· <b>' + mpDateLabel(x.date) + '</b> ' + escapeHtml(x.entry || '') + '-' +
+        escapeHtml(x.exit || '') + ' — ' + escapeHtml(x.reason || '')
+      ).join('<br>') + '</div>' +
       '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
       '<button class="tool-btn mp-approve-btn" data-id="' + escapeHtml(r.id) +
       '" style="width:auto;padding:8px 14px;font-weight:700">אשר וחתום</button>' +
@@ -3053,6 +3100,68 @@ async function openCommanderMissedPunchModal() {
       '</div></div>'
     ).join('');
 
+    function refreshBulkBar() {
+      const bar = document.getElementById('mp-bulk-bar');
+      const n = mpCommanderSelected.size;
+      bar.classList.toggle('hidden', n === 0);
+      document.getElementById('mp-bulk-count').textContent = n + ' טפסים נבחרו';
+    }
+
+    body.querySelectorAll('.mp-select').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) mpCommanderSelected.add(cb.dataset.id);
+        else mpCommanderSelected.delete(cb.dataset.id);
+        refreshBulkBar();
+      });
+    });
+
+    document.getElementById('mp-select-all').addEventListener('click', () => {
+      body.querySelectorAll('.mp-select').forEach(cb => {
+        cb.checked = true;
+        mpCommanderSelected.add(cb.dataset.id);
+      });
+      refreshBulkBar();
+    });
+
+    document.getElementById('mp-clear-all').addEventListener('click', () => {
+      body.querySelectorAll('.mp-select').forEach(cb => { cb.checked = false; });
+      mpCommanderSelected.clear();
+      refreshBulkBar();
+    });
+
+    // ── פעולות מרוכזות ──
+    document.getElementById('mp-bulk-approve').addEventListener('click', () => {
+      const ids = Array.from(mpCommanderSelected);
+      if (ids.length === 0) return;
+      signWithStoredOrDraw('missedpunch-bulk', 'אישור ' + ids.length + ' טפסים', async () => {
+        const r = await callApi('POST', 'commanderBulkApproveMissedPunch', {
+          code: state.code, reportIds: ids, signatureBase64: ''
+        });
+        await fadeOutSelectedCards(ids, 'נשלח אל ליסה בהצלחה');
+        showToast(r.message || 'הטפסים אושרו');
+        openCommanderMissedPunchModal();
+      });
+    });
+
+    document.getElementById('mp-bulk-reject').addEventListener('click', async () => {
+      const ids = Array.from(mpCommanderSelected);
+      if (ids.length === 0) return;
+      const reason = prompt('נימוק לדחיית ' + ids.length + ' הטפסים (יישלח לכל העובדים):');
+      if (reason === null) return;
+      if (!reason.trim()) { showToast('חובה לציין נימוק'); return; }
+      try {
+        const r = await callApi('POST', 'commanderBulkRejectMissedPunch', {
+          code: state.code, reportIds: ids, reason
+        });
+        await fadeOutSelectedCards(ids, 'הוחזר לעובד לתיקון');
+        showToast(r.message || 'הטפסים הוחזרו');
+        openCommanderMissedPunchModal();
+      } catch (err) {
+        showToast(err.message || 'שגיאה בדחייה');
+      }
+    });
+
+    // ── פעולות בודדות ──
     body.querySelectorAll('.mp-approve-btn').forEach(b => {
       b.addEventListener('click', () => {
         missedPunchActiveId = b.dataset.id;
@@ -3060,10 +3169,7 @@ async function openCommanderMissedPunchModal() {
           await callApi('POST', 'commanderApproveMissedPunch', {
             code: state.code, reportId: missedPunchActiveId, signatureBase64: ''
           });
-          // הכרטיס לא נעלם מיד: קודם מוצג אישור ברור, ורק אחריו
-          // הוא מתפוגג. ככה ראש המשמרת יודע בוודאות שזה נשלח.
-          const cardEl = b.closest('.shift-card');
-          await fadeOutCard(cardEl, 'נשלח אל ליסה בהצלחה');
+          await fadeOutCard(b.closest('.shift-card'), 'נשלח אל ליסה בהצלחה');
           openCommanderMissedPunchModal();
         });
       });
@@ -3075,10 +3181,10 @@ async function openCommanderMissedPunchModal() {
         if (reason === null) return;
         if (!reason.trim()) { showToast('חובה לציין נימוק'); return; }
         try {
-          const res2 = await callApi('POST', 'commanderRejectMissedPunch', {
+          await callApi('POST', 'commanderRejectMissedPunch', {
             code: state.code, reportId: b.dataset.id, reason
           });
-          showToast(res2.message || 'הטופס הוחזר לעובד');
+          await fadeOutCard(b.closest('.shift-card'), 'הוחזר לעובד לתיקון');
           openCommanderMissedPunchModal();
         } catch (err) {
           showToast(err.message || 'שגיאה בדחייה');
@@ -3088,6 +3194,14 @@ async function openCommanderMissedPunchModal() {
   } catch (err) {
     body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
   }
+}
+
+// מתפוגג את כל הכרטיסים שנבחרו יחד, ומחכה שכולם יסתיימו
+function fadeOutSelectedCards(ids, message) {
+  const cards = ids
+    .map(id => document.querySelector('.mp-report-card[data-id="' + id + '"]'))
+    .filter(Boolean);
+  return Promise.all(cards.map(c => fadeOutCard(c, message)));
 }
 
 // ---------------------------------------------------------------------
@@ -3408,7 +3522,9 @@ function openMySignatureModal() {
       '<img src="data:image/png;base64,' + myStoredSignature +
       '" style="max-height:120px;max-width:100%"></div>' +
       '<button id="sig-replace" class="btn btn-primary" ' +
-      'style="width:100%;margin-top:14px">החלף חתימה</button>' +
+      'style="width:100%;margin-top:14px">צייר חתימה חדשה</button>' +
+      '<button id="sig-upload" class="tool-btn" ' +
+      'style="width:100%;margin-top:8px">העלה תמונה או חותמת</button>' +
       '<button id="sig-delete" class="tool-btn" ' +
       'style="width:100%;margin-top:8px;color:var(--danger)">מחק חתימה</button>';
 
@@ -3431,13 +3547,88 @@ function openMySignatureModal() {
       'עדיין לא שמרת חתימה. חתום פעם אחת, ומכאן כל טופס ידרוש ממך ' +
       'רק לאשר במקום לחתום מחדש.</div>' +
       '<button id="sig-replace" class="btn btn-primary" ' +
-      'style="width:100%;margin-top:6px">חתום עכשיו</button>';
+      'style="width:100%;margin-top:6px">צייר חתימה</button>' +
+      '<button id="sig-upload" class="tool-btn" ' +
+      'style="width:100%;margin-top:8px">העלה תמונה או חותמת</button>';
   }
 
   document.getElementById('sig-replace').addEventListener('click', () => {
     closeMpModal('my-signature-modal');
     signatureMode = 'store-only';
     openSignatureModal('החתימה שלי');
+  });
+
+  const uploadBtn = document.getElementById('sig-upload');
+  if (uploadBtn) uploadBtn.addEventListener('click', pickSignatureImage);
+}
+
+// העלאת תמונת חתימה או חותמת משרדית סרוקה.
+// התמונה מוקטנת ומומרת ל-PNG לפני השמירה - קובץ ישירות מהמצלמה הוא
+// כמה מגה-בייט, והמגבלה בשרת היא 45,000 תווים.
+function pickSignatureImage() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.style.display = 'none';
+  document.body.appendChild(input);
+
+  input.addEventListener('change', async () => {
+    const file = input.files && input.files[0];
+    document.body.removeChild(input);
+    if (!file) return;
+
+    try {
+      const base64 = await imageFileToSignatureBase64(file);
+      const res = await callApi('POST', 'saveMySignature', {
+        code: state.code, signatureBase64: base64
+      });
+      myStoredSignature = base64;
+      myStoredSignatureAt = new Date().toISOString();
+      closeMpModal('my-signature-modal');
+      renderSignatureButton();
+      showToast(res.message || 'החתימה נשמרה');
+    } catch (err) {
+      showToast(err.message || 'שגיאה בהעלאת התמונה');
+    }
+  });
+
+  input.click();
+}
+
+// מקטין את התמונה לרוחב מרבי של 600px ומוריד איכות בהדרגה עד שהיא
+// נכנסת למגבלת הגודל. ככה גם צילום מלא של חותמת מהטלפון עובד.
+function imageFileToSignatureBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('לא הצלחתי לקרוא את הקובץ'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('הקובץ אינו תמונה תקינה'));
+      img.onload = () => {
+        const MAX_W = 600;
+        const MAX_CHARS = 44000;
+        const scale = Math.min(1, MAX_W / img.width);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        let out = canvas.toDataURL('image/png').split(',')[1];
+        if (out.length <= MAX_CHARS) return resolve(out);
+
+        // PNG גדול מדי - עוברים ל-JPEG ומורידים איכות עד שנכנס
+        let quality = 0.85;
+        while (quality >= 0.35) {
+          out = canvas.toDataURL('image/jpeg', quality).split(',')[1];
+          if (out.length <= MAX_CHARS) return resolve(out);
+          quality -= 0.15;
+        }
+        reject(new Error('התמונה כבדה מדי. נסה תמונה קטנה או חתוכה יותר.'));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
   });
 }
 
@@ -3748,6 +3939,67 @@ async function openHourSignModal() {
   } catch (err) {
     body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
   }
+}
+
+
+// =====================================================================
+//  בחירת תפקיד בתחנה
+// =====================================================================
+//  ROLE במערכת הוא מנוע ההרשאות ('manager' / 'hr'), אבל הוא לא תיאור
+//  אמיתי של התפקיד בתחנה. כאן בוחרים תפקיד מבצעי מהרשימה, והשרת
+//  גוזר ממנו את ההרשאות: ראש משמרת וסגנו מקבלים בדיוק אותן הרשאות.
+
+const STATION_POSITIONS_UI = [
+  'ראש משמרת',
+  'סגן ראש משמרת',
+  'קצין חומ"ס',
+  'קצין אשכול',
+  'מפקד צוות',
+  'סגן מפקד צוות',
+  'לוחם אש'
+];
+const MANAGER_POSITIONS_UI = ['ראש משמרת', 'סגן ראש משמרת'];
+
+function openPositionPicker(code, name, currentPosition) {
+  const body = mpModal('position-picker-modal', 'תפקיד — ' + name);
+
+  body.innerHTML =
+    '<div style="font-size:13.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.6">' +
+    'ראש משמרת וסגן ראש משמרת מקבלים הרשאות ניהול משמרת זהות: ' +
+    'אישור טפסים, חתימה על דוחות שעות והקפצת קריאת פתע.</div>' +
+    STATION_POSITIONS_UI.map(p => {
+      const active = p === currentPosition;
+      const isMgr = MANAGER_POSITIONS_UI.indexOf(p) !== -1;
+      return '<button class="pos-option" data-pos="' + escapeHtml(p) + '" ' +
+        'style="width:100%;text-align:right;padding:13px 14px;margin-bottom:8px;' +
+        'border-radius:10px;font-size:15px;font-family:inherit;cursor:pointer;' +
+        (active
+          ? 'background:#C1272D;color:#fff;border:2px solid #C1272D;font-weight:700'
+          : 'background:#fff;color:inherit;border:1px solid var(--border,#ddd)') + '">' +
+        escapeHtml(p) + (isMgr ? '  <span style="font-size:12px;opacity:.8">· הרשאות ניהול</span>' : '') +
+        (active ? '  ✓' : '') + '</button>';
+    }).join('') +
+    (currentPosition
+      ? '<button class="pos-option" data-pos="" style="width:100%;text-align:center;' +
+        'padding:12px;margin-top:6px;border-radius:10px;font-size:14px;font-family:inherit;' +
+        'cursor:pointer;background:#fff;color:var(--danger,#c62828);' +
+        'border:1px solid var(--border,#ddd)">הסר תפקיד</button>'
+      : '');
+
+  body.querySelectorAll('.pos-option').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        const res = await callApi('POST', 'adminSetUserPosition', {
+          adminCode: state.code, targetCode: code, position: btn.dataset.pos
+        });
+        showToast(res.message || 'התפקיד עודכן');
+        closeMpModal('position-picker-modal');
+        loadAdminUsers();
+      } catch (err) {
+        showToast(err.message || 'שגיאה בעדכון התפקיד');
+      }
+    });
+  });
 }
 
 tryAutoLogin();
