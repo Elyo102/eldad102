@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v60';
+const APP_VERSION = 'v61';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -2357,7 +2357,8 @@ const AVAILABLE_SHORTCUTS = [
   { id: 'missed_punch', label: '📝 דוחות אי החתמה' },
   { id: 'create_missed_punch', label: '⚠️ פתיחת דוח אי החתמה' },
   { id: 'sign_hour_reports', label: '✍️ חתימת דוחות שעות' },
-  { id: 'commander_swaps', label: '🔄 החלפות משמרת לאישור' }
+  { id: 'commander_swaps', label: '🔄 החלפות משמרת לאישור' },
+  { id: 'guard_calendar', label: '🛡️ יומן אבטחות אירועים' }
 ];
 
 function getMyShortcuts() {
@@ -2445,6 +2446,8 @@ function triggerShortcut(id) {
     openHourSignModal();
   } else if (id === 'commander_swaps') {
     openCommanderSwapsModal();
+  } else if (id === 'guard_calendar') {
+    openGuardCalendarModal();
   }
 }
 
@@ -3527,6 +3530,20 @@ function renderSignatureButton() {
       tools.appendChild(swapBtn);
     }
   }
+
+  // האבטחות שלי - לכל כבאי
+  let guardBtn = document.getElementById('my-guard-btn');
+  if (!guardBtn) {
+    const tools2 = document.querySelector('.bottom-tools');
+    if (tools2) {
+      guardBtn = document.createElement('button');
+      guardBtn.id = 'my-guard-btn';
+      guardBtn.className = 'tool-btn';
+      guardBtn.textContent = '🛡️ האבטחות שלי';
+      guardBtn.addEventListener('click', openMyGuardEventsModal);
+      tools2.appendChild(guardBtn);
+    }
+  }
 }
 
 function openMySignatureModal() {
@@ -4271,6 +4288,304 @@ async function openCommanderSwapsModal() {
         }
       });
     });
+  } catch (err) {
+    body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
+}
+
+
+// =====================================================================
+//  יומן אבטחות אירועים
+// =====================================================================
+//  לוח שנה חודשי לראש המשמרת, רישום אירוע חדש, ודוח חלוקת עומס.
+//  לכבאי רגיל - רשימת האבטחות שלו בלבד.
+
+const guardState = { month: new Date(), events: [], people: null };
+
+function guardMonthKey() {
+  const m = guardState.month;
+  return m.getFullYear() + '-' + String(m.getMonth() + 1).padStart(2, '0');
+}
+
+async function openGuardCalendarModal() {
+  const body = mpModal('guard-cal-modal', 'יומן אבטחות אירועים');
+  body.innerHTML = '<div class="empty-state">טוען...</div>';
+  guardState.month = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  await drawGuardCalendar(body);
+}
+
+async function drawGuardCalendar(body) {
+  const bodyEl = body || document.querySelector('#guard-cal-modal .mp-body');
+  if (!bodyEl) return;
+
+  try {
+    const res = await callApi('GET', 'listGuardEvents', {
+      code: state.code, monthKey: guardMonthKey()
+    });
+    guardState.events = res.events || [];
+  } catch (err) {
+    bodyEl.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+    return;
+  }
+
+  const m = guardState.month;
+  const startOffset = new Date(m.getFullYear(), m.getMonth(), 1).getDay();
+  const daysInMonth = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
+
+  let cells = '';
+  for (let i = 0; i < startOffset; i++) cells += '<div></div>';
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = m.getFullYear() + '-' +
+      String(m.getMonth() + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+    const dayEvents = guardState.events.filter(e => e.eventDate === dateStr);
+    const has = dayEvents.length > 0;
+
+    cells += '<div class="guard-day" data-date="' + dateStr + '" ' +
+      'style="min-height:54px;border-radius:8px;padding:4px;cursor:pointer;' +
+      'display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:2px;' +
+      (has
+        ? 'background:#C1272D;color:#fff;border:1px solid #C1272D'
+        : 'background:#fff;border:1px solid var(--border,#ddd)') + '">' +
+      '<span style="font-size:15px;font-weight:700">' + d + '</span>' +
+      (has ? '<span style="font-size:9px;line-height:1.2;text-align:center">' +
+        dayEvents.length + ' אבטחות</span>' : '') +
+      '</div>';
+  }
+
+  bodyEl.innerHTML =
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">' +
+    '<button id="guard-prev" class="tool-btn" style="width:auto;padding:6px 14px">‹</button>' +
+    '<div style="font-weight:800;font-size:15px">' +
+    MONTH_NAMES[m.getMonth()] + ' ' + m.getFullYear() + '</div>' +
+    '<button id="guard-next" class="tool-btn" style="width:auto;padding:6px 14px">›</button>' +
+    '</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center;' +
+    'font-size:12px;color:var(--text-muted);margin-bottom:4px">' +
+    DAY_NAMES.map(d => '<div>' + d.slice(0, 1) + '</div>').join('') + '</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">' + cells + '</div>' +
+    '<div style="display:flex;gap:8px;margin-top:14px">' +
+    '<button id="guard-add" class="btn btn-primary" style="flex:1">רישום אבטחה</button>' +
+    '<button id="guard-load" class="tool-btn" style="flex:1;padding:10px">חלוקת עומס</button>' +
+    '</div>' +
+    '<div id="guard-day-detail" style="margin-top:12px"></div>';
+
+  document.getElementById('guard-prev').addEventListener('click', () => {
+    guardState.month = new Date(m.getFullYear(), m.getMonth() - 1, 1);
+    drawGuardCalendar();
+  });
+  document.getElementById('guard-next').addEventListener('click', () => {
+    guardState.month = new Date(m.getFullYear(), m.getMonth() + 1, 1);
+    drawGuardCalendar();
+  });
+  document.getElementById('guard-add').addEventListener('click', () => openGuardFormModal(null));
+  document.getElementById('guard-load').addEventListener('click', openGuardLoadModal);
+
+  bodyEl.querySelectorAll('.guard-day').forEach(cell => {
+    cell.addEventListener('click', () => showGuardDay(cell.dataset.date));
+  });
+}
+
+function showGuardDay(dateStr) {
+  const detail = document.getElementById('guard-day-detail');
+  if (!detail) return;
+  const dayEvents = guardState.events.filter(e => e.eventDate === dateStr);
+
+  if (dayEvents.length === 0) {
+    detail.innerHTML =
+      '<div class="empty-state">אין אבטחות ב-' + mpDateLabel(dateStr) + '</div>' +
+      '<button class="tool-btn guard-add-for-day" data-date="' + dateStr + '" ' +
+      'style="width:100%;padding:9px">רישום אבטחה לתאריך זה</button>';
+  } else {
+    detail.innerHTML = dayEvents.map(e =>
+      '<div class="shift-card" style="flex-direction:column;align-items:stretch">' +
+      '<div style="font-weight:800;font-size:15px">' + escapeHtml(e.title) + '</div>' +
+      '<div style="font-size:13px;color:var(--text-muted);margin-top:2px">' +
+      mpDateLabel(e.eventDate) +
+      (e.startTime ? ' · ' + escapeHtml(e.startTime) + '-' + escapeHtml(e.endTime || '') : '') +
+      (e.location ? ' · ' + escapeHtml(e.location) : '') + '</div>' +
+      (e.commanderName
+        ? '<div style="font-size:13.5px;margin-top:6px"><b>מפקד צוות:</b> ' +
+          escapeHtml(e.commanderName) + '</div>'
+        : '') +
+      '<div style="font-size:13.5px;margin-top:3px"><b>לוחמים:</b> ' +
+      escapeHtml(e.fighterNames) + '</div>' +
+      (e.notes ? '<div style="font-size:12.5px;color:var(--text-muted);margin-top:4px">' +
+        escapeHtml(e.notes) + '</div>' : '') +
+      '<div style="font-size:12px;color:var(--text-muted);margin-top:6px">נרשם על ידי ' +
+      escapeHtml(e.createdBy || '') + '</div>' +
+      '<button class="tool-btn guard-delete" data-id="' + escapeHtml(e.id) + '" ' +
+      'style="width:auto;padding:6px 12px;margin-top:8px;color:var(--danger)">מחק</button>' +
+      '</div>'
+    ).join('') +
+    '<button class="tool-btn guard-add-for-day" data-date="' + dateStr + '" ' +
+    'style="width:100%;padding:9px;margin-top:6px">רישום אבטחה נוספת</button>';
+  }
+
+  detail.querySelectorAll('.guard-add-for-day').forEach(b =>
+    b.addEventListener('click', () => openGuardFormModal(b.dataset.date)));
+
+  detail.querySelectorAll('.guard-delete').forEach(b =>
+    b.addEventListener('click', async () => {
+      if (!confirm('למחוק את האירוע?')) return;
+      try {
+        await callApi('POST', 'deleteGuardEvent', { code: state.code, eventId: b.dataset.id });
+        showToast('האירוע נמחק');
+        await drawGuardCalendar();
+      } catch (err) {
+        showToast(err.message || 'שגיאה במחיקה');
+      }
+    }));
+}
+
+async function openGuardFormModal(presetDate) {
+  const body = mpModal('guard-form-modal', 'רישום אבטחת אירוע');
+  body.innerHTML = '<div class="empty-state">טוען...</div>';
+
+  try {
+    if (!guardState.people) {
+      const res = await callApi('GET', 'listSwapCandidates', { code: state.code });
+      guardState.people = res.people || [];
+    }
+
+    const inputStyle = 'width:100%;padding:11px;font-size:16px;' +
+      'border:1px solid var(--border,#ccc);border-radius:8px;margin-bottom:12px';
+
+    body.innerHTML =
+      '<label class="form-label" style="display:block;margin-bottom:4px">תאריך</label>' +
+      '<input id="ge-date" type="date" value="' + (presetDate || '') + '" style="' + inputStyle + '">' +
+
+      '<label class="form-label" style="display:block;margin-bottom:4px">שם האירוע</label>' +
+      '<input id="ge-title" type="text" placeholder="לדוגמה: משחק כדורגל באצטדיון" style="' + inputStyle + '">' +
+
+      '<label class="form-label" style="display:block;margin-bottom:4px">מיקום</label>' +
+      '<input id="ge-location" type="text" style="' + inputStyle + '">' +
+
+      '<div style="display:flex;gap:10px">' +
+      '<div style="flex:1"><label class="form-label" style="display:block;margin-bottom:4px">שעת יציאה</label>' +
+      '<input id="ge-start" type="time" style="' + inputStyle + '"></div>' +
+      '<div style="flex:1"><label class="form-label" style="display:block;margin-bottom:4px">שעת חזרה</label>' +
+      '<input id="ge-end" type="time" style="' + inputStyle + '"></div>' +
+      '</div>' +
+
+      '<label class="form-label" style="display:block;margin-bottom:4px">מפקד צוות</label>' +
+      '<select id="ge-commander" style="' + inputStyle + '">' +
+      '<option value="">— ללא —</option>' +
+      guardState.people.map(p => '<option value="' + escapeHtml(p.code) + '">' +
+        escapeHtml(p.name) + '</option>').join('') + '</select>' +
+
+      '<label class="form-label" style="display:block;margin-bottom:4px">לוחמים</label>' +
+      '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:6px">' +
+      'סמן את כל מי שיצא לאבטחה</div>' +
+      '<div style="max-height:200px;overflow-y:auto;border:1px solid var(--border,#ddd);' +
+      'border-radius:8px;padding:8px;margin-bottom:12px">' +
+      guardState.people.map(p =>
+        '<label style="display:flex;align-items:center;gap:8px;padding:6px 2px;cursor:pointer">' +
+        '<input type="checkbox" class="ge-fighter" value="' + escapeHtml(p.code) + '" ' +
+        'style="width:18px;height:18px;cursor:pointer">' +
+        '<span style="font-size:14px">' + escapeHtml(p.name) +
+        (p.team ? ' · ' + escapeHtml(p.team) : '') + '</span></label>'
+      ).join('') + '</div>' +
+
+      '<label class="form-label" style="display:block;margin-bottom:4px">הערות</label>' +
+      '<textarea id="ge-notes" rows="2" style="' + inputStyle + ';resize:vertical"></textarea>' +
+
+      '<div id="ge-error" class="hidden" style="color:var(--danger);font-size:13.5px;margin-bottom:8px"></div>' +
+      '<button id="ge-submit" class="btn btn-primary" style="width:100%">שמור אירוע</button>';
+
+    document.getElementById('ge-submit').addEventListener('click', async () => {
+      const errBox = document.getElementById('ge-error');
+      errBox.classList.add('hidden');
+
+      const fighterCodes = Array.from(document.querySelectorAll('.ge-fighter:checked'))
+        .map(cb => cb.value);
+
+      const params = {
+        eventDate: document.getElementById('ge-date').value,
+        title: document.getElementById('ge-title').value.trim(),
+        location: document.getElementById('ge-location').value.trim(),
+        startTime: document.getElementById('ge-start').value,
+        endTime: document.getElementById('ge-end').value,
+        teamCommanderCode: document.getElementById('ge-commander').value,
+        fighterCodes: fighterCodes,
+        notes: document.getElementById('ge-notes').value.trim()
+      };
+
+      if (!params.eventDate || !params.title) {
+        errBox.textContent = 'יש למלא תאריך ושם אירוע';
+        errBox.classList.remove('hidden');
+        return;
+      }
+      if (fighterCodes.length === 0) {
+        errBox.textContent = 'יש לסמן לפחות לוחם אחד';
+        errBox.classList.remove('hidden');
+        return;
+      }
+
+      try {
+        const r = await callApi('POST', 'createGuardEvent', { code: state.code, params });
+        showToast(r.message || 'האירוע נרשם');
+        closeMpModal('guard-form-modal');
+        await drawGuardCalendar();
+      } catch (err) {
+        errBox.textContent = err.message || 'שגיאה בשמירה';
+        errBox.classList.remove('hidden');
+      }
+    });
+  } catch (err) {
+    body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
+}
+
+async function openGuardLoadModal() {
+  const body = mpModal('guard-load-modal', 'חלוקת אבטחות');
+  body.innerHTML = '<div class="empty-state">טוען...</div>';
+
+  try {
+    const r = await callApi('GET', 'guardLoadReport', { code: state.code });
+    const rows = r.rows || [];
+
+    body.innerHTML =
+      '<div style="font-size:13.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.6">' +
+      mpDateLabel(r.from) + ' עד ' + mpDateLabel(r.to) + ' · ' +
+      escapeHtml(r.scope) + ' · ' + r.eventsInRange + ' אירועים<br>' +
+      'ממוין מהפחות למרובה. מי שלא יצא כלל מופיע ראשון.</div>' +
+      (rows.length === 0
+        ? '<div class="empty-state">אין נתונים</div>'
+        : rows.map(u =>
+            '<div class="shift-card" style="align-items:center">' +
+            '<div class="shift-details"><div class="shift-type">' +
+            (u.count === 0 ? '⚠️ ' : '') + escapeHtml(u.name) + '</div>' +
+            '<div class="shift-time">' + escapeHtml(u.team || 'ללא משמרת') + '</div></div>' +
+            '<div style="font-size:22px;font-weight:800;color:' +
+            (u.count === 0 ? 'var(--danger)' : 'var(--text-primary)') + '">' +
+            u.count + '</div></div>'
+          ).join(''));
+  } catch (err) {
+    body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
+}
+
+// לכבאי רגיל - האבטחות שלו בלבד
+async function openMyGuardEventsModal() {
+  const body = mpModal('my-guard-modal', 'האבטחות שלי');
+  body.innerHTML = '<div class="empty-state">טוען...</div>';
+
+  try {
+    const r = await callApi('GET', 'listMyGuardEvents', { code: state.code });
+    const events = r.events || [];
+
+    body.innerHTML = events.length === 0
+      ? '<div class="empty-state">לא יצאת לאבטחות</div>'
+      : '<div style="font-size:13.5px;color:var(--text-muted);margin-bottom:10px">' +
+        'סה"כ ' + events.length + ' אבטחות</div>' +
+        events.map(e =>
+          '<div class="shift-card"><div class="shift-details">' +
+          '<div class="shift-type">' + escapeHtml(e.title) + '</div>' +
+          '<div class="shift-time">' + mpDateLabel(e.eventDate) +
+          (e.location ? ' · ' + escapeHtml(e.location) : '') +
+          ' · ' + escapeHtml(e.role) + '</div></div></div>'
+        ).join('');
   } catch (err) {
     body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
   }
