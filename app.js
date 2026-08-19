@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v67';
+const APP_VERSION = 'v68';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -2358,7 +2358,7 @@ $('admin-personal-alerts-list').addEventListener('click', handlePersonalAlertsCl
 // פשוט לא רואה את הקיצור, גם אם ניסה להוסיף אותו בעבר.
 const AVAILABLE_SHORTCUTS = [
   { id: 'missed_punch_mine',   label: 'דוחות אי החתמה',        who: ['all'] },
-  { id: 'manual_shift',        label: 'דיווח שעות ידני',        who: ['all'] },
+  { id: 'my_guard',            label: 'האבטחות שלי',           who: ['all'] },
   { id: 'create_missed_punch', label: 'פתיחת דוח אי החתמה',    who: ['hr', 'admin'] },
   { id: 'broadcast_all',       label: 'הודעה לכולם',           who: ['manager', 'hr', 'admin'] },
   { id: 'send_documents',      label: 'שליחת מסמכים',          who: ['manager', 'hr', 'admin'] },
@@ -2450,33 +2450,29 @@ function openAddShortcutModal() {
 $('close-add-shortcut-modal').addEventListener('click', () => $('add-shortcut-modal').classList.add('hidden'));
 
 function triggerShortcut(id) {
-  if (id === 'broadcast_all') {
-    adminMessageTarget = null;
-    $('admin-message-modal-title').textContent = 'הודעה לכולם';
-    $('admin-message-text').value = '';
-    $('admin-message-error').classList.add('hidden');
-    $('admin-message-modal').classList.remove('hidden');
-  } else if (id === 'add_manager') {
-    $('admin-add-manager-btn').click();
-  } else if (id === 'upload_procedure') {
-    $('admin-upload-procedure-btn').click();
-  } else if (id === 'confirmable_broadcast') {
-    openConfirmableBroadcastModal();
-  } else if (id === 'missed_punch') {
-    openCommanderMissedPunchModal();
-  } else if (id === 'create_missed_punch') {
-    openCreateMissedPunchModal();
-  } else if (id === 'sign_hour_reports') {
-    openHourSignModal();
-  } else if (id === 'commander_swaps') {
-    openCommanderSwapsModal();
-  } else if (id === 'guard_calendar') {
-    openGuardCalendarModal();
-  } else if (id === 'urgent_call') {
-    openUrgentHistoryModal();
-  } else if (id === 'commander_vacations') {
-    openCommanderVacationsModal();
-  }
+  const map = {
+    missed_punch_mine:   () => openMyMissedPunchModal(),
+    my_guard:            () => openMyGuardEventsModal(),
+    create_missed_punch: () => openCreateMissedPunchModal(),
+    broadcast_all:       () => {
+      adminMessageTarget = null;
+      $('admin-message-modal-title').textContent = 'הודעה לכולם';
+      $('admin-message-text').value = '';
+      $('admin-message-error').classList.add('hidden');
+      $('admin-message-modal').classList.remove('hidden');
+    },
+    send_documents:      () => $('admin-upload-procedure-btn').click(),
+    urgent_call:         () => openUrgentHistoryModal(),
+    sign_hour_reports:   () => openHourSignModal(),
+    missed_punch:        () => openCommanderMissedPunchModal(),
+    commander_swaps:     () => openCommanderSwapsModal(),
+    commander_vacations: () => openCommanderVacationsModal(),
+    guard_calendar:      () => openGuardCalendarModal()
+  };
+
+  const fn = map[id];
+  if (fn) fn();
+  else showToast('הפעולה לא זמינה');
 }
 
 // ---------------------------------------------------------------------
@@ -4340,6 +4336,9 @@ function guardMonthKey() {
 
 async function openGuardCalendarModal() {
   const body = mpModal('guard-cal-modal', 'יומן אבטחות אירועים');
+  // היומן צריך שטח אמיתי - במסך קטן התאים נדחסים ואי אפשר לקרוא כלום
+  const modal = document.getElementById('guard-cal-modal');
+  if (modal) modal.classList.add('mp-fullscreen');
   body.innerHTML = '<div class="empty-state">טוען...</div>';
   guardState.month = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   await drawGuardCalendar(body);
@@ -4373,12 +4372,12 @@ async function drawGuardCalendar(body) {
     const has = dayEvents.length > 0;
 
     cells += '<div class="guard-day" data-date="' + dateStr + '" ' +
-      'style="min-height:54px;border-radius:8px;padding:4px;cursor:pointer;' +
+      'style="min-height:74px;border-radius:10px;padding:6px;cursor:pointer;' +
       'display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:2px;' +
       (has
         ? 'background:#C1272D;color:#fff;border:1px solid #C1272D'
         : 'background:#fff;border:1px solid var(--border,#ddd)') + '">' +
-      '<span style="font-size:15px;font-weight:700">' + d + '</span>' +
+      '<span style="font-size:18px;font-weight:700">' + d + '</span>' +
       (has ? '<span style="font-size:9px;line-height:1.2;text-align:center">' +
         dayEvents.length + ' אבטחות</span>' : '') +
       '</div>';
@@ -5134,6 +5133,14 @@ nav.bottom-tools:not(#shortcuts-bar) .tool-btn i {
 }
 #ds-drawer.show { transform: translateY(0); }
 
+/* מודל במסך מלא - ליומן האבטחות, שצריך שטח אמיתי */
+.mp-fullscreen > div {
+  max-width: 100% !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  border-radius: 0 !important;
+}
+
 .ds-handle {
   width: 40px;
   height: 4px;
@@ -5147,32 +5154,35 @@ nav.bottom-tools:not(#shortcuts-bar) .tool-btn i {
   color: #999;
   margin: 4px 2px 8px;
 }
+/* תצוגת מגדל: שורה לכל פעולה עם תווית מלאה. עדיף על רשת כשהתוויות
+   ארוכות - אין שבירת מילים ואין ניחוש מה האייקון אומר. */
 .ds-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   margin-bottom: 14px;
 }
 .ds-tile {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 14px 4px;
-  border-radius: 15px;
+  justify-content: flex-start;
+  gap: 14px;
+  padding: 15px 16px;
+  border-radius: 14px;
   background: #FAF8F6;
   border: 1.5px solid transparent;
   font-family: inherit;
   cursor: pointer;
-  min-height: 88px;
+  min-height: 58px;
+  width: 100%;
+  text-align: right;
 }
-.ds-tile i { font-size: 26px; color: #555; line-height: 1; }
+.ds-tile i { font-size: 25px; color: #555; line-height: 1; flex: none; }
 .ds-tile span {
-  font-size: 11px;
+  font-size: 15px;
   font-weight: 600;
-  text-align: center;
-  line-height: 1.25;
+  line-height: 1.3;
   color: #222;
 }
 .ds-tile.primary i { color: #C1272D; }
@@ -5190,7 +5200,7 @@ nav.bottom-tools:not(#shortcuts-bar) .tool-btn i {
 // ---------------------------------------------------------------------
 const SC_ICONS = {
   missed_punch_mine:   'ti-file-text',
-  manual_shift:        'ti-clock-plus',
+  my_guard:            'ti-shield-check',
   create_missed_punch: 'ti-alert-triangle',
   broadcast_all:       'ti-speakerphone',
   send_documents:      'ti-file-upload',
@@ -5437,7 +5447,7 @@ showScreen = function (id) {
 //  לאותו מקום בלחיצה אחת נוספת בלבד.
 
 const DRAWER_MINE = [
-  { id: 'new_shift', icon: 'ti-clock-plus',       label: 'דיווח יום',    primary: true,
+  { id: 'new_shift', icon: 'ti-clock-plus',       label: 'דיווח שעות ידני', primary: true,
     run: () => openShiftModal(null, null) },
   { id: 'swap',      icon: 'ti-arrows-exchange',  label: 'החלפת משמרת',  primary: true,
     run: () => openMySwapsModal() },
