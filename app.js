@@ -6,7 +6,42 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v68';
+// =====================================================================
+//  מלכודת שגיאות
+// =====================================================================
+//  בטלפון אין קונסולה, ולכן שגיאת ריצה נראית פשוט כמו "האפליקציה
+//  תקועה". הבאנר כאן מציג את השגיאה על המסך עם מספר השורה, כדי
+//  שאפשר יהיה לאבחן בלי מחשב.
+
+(function installErrorTrap() {
+  function showFatal(msg, extra) {
+    let el = document.getElementById('ds-fatal');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'ds-fatal';
+      el.style.cssText =
+        'position:fixed;top:0;left:0;right:0;z-index:99999;background:#C1272D;' +
+        'color:#fff;padding:12px 14px;font-size:13px;line-height:1.5;' +
+        'font-family:monospace;direction:ltr;text-align:left;max-height:45vh;' +
+        'overflow:auto;box-shadow:0 2px 12px rgba(0,0,0,.3)';
+      (document.body || document.documentElement).appendChild(el);
+    }
+    el.textContent = '⚠ ' + msg + (extra ? '  |  ' + extra : '');
+  }
+
+  window.addEventListener('error', function (e) {
+    showFatal(e.message, (e.filename || '').split('/').pop() + ':' + e.lineno);
+  });
+
+  window.addEventListener('unhandledrejection', function (e) {
+    const r = e.reason;
+    showFatal('Promise: ' + ((r && r.message) || r));
+  });
+
+  window.dsShowFatal = showFatal;
+})();
+
+const APP_VERSION = 'v69';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -3847,7 +3882,10 @@ async function clearAppCacheAndReload() {
 
   // 4. טעינה מחדש עם פרמטר ייחודי, כדי שגם הדפדפן עצמו לא יגיש
   //    את ה-HTML מהמטמון שלו
-  const base = location.href.split('?')[0].split('#')[0];
+  // תמיד חוזרים לשורש האפליקציה ולא לקובץ שממנו הגענו. אם המשתמש
+  // הגיע במקרה לכתובת של קובץ בודד, רענון "במקום" היה משאיר אותו שם.
+  let base = location.origin + location.pathname;
+  base = base.replace(/[^/]*$/, '');
   location.replace(base + '?fresh=' + Date.now());
 }
 
