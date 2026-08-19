@@ -88,7 +88,7 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-const CACHE_NAME = 'ds102-shell-v58';
+const CACHE_NAME = 'ds102-shell-v59';
 const SHELL_FILES = [
   './',
   './index.html',
@@ -130,14 +130,22 @@ self.addEventListener('fetch', (event) => {
   if (url.indexOf('script.google') !== -1 ||
       url.indexOf('googleusercontent.com') !== -1 ||
       url.indexOf('googleapis.com') !== -1) {
-    event.respondWith(fetch(event.request));
+    // לא נוגעים בבקשה בכלל - נותנים לדפדפן לטפל בה בעצמו.
+    // קודם עטפנו אותה ב-fetch מחדש, וזה יכול לשבור את שרשרת
+    // ההפניות של Apps Script ולהחזיר "Failed to fetch".
     return;
   }
 
   if (event.request.method !== 'GET') return;
 
-  // רק בקשות מאותו מקור נשמרות במטמון. כל דבר חיצוני עובר ישירות.
-  if (new URL(url).origin !== self.location.origin) return;
+  // רק בקשות מאותו מקור נשמרות במטמון. כל דבר חיצוני עובר ישירות
+  // לדפדפן בלי שנתערב. ה-try חשוב: כתובות מסוימות (תוספים, blob)
+  // מפילות את new URL, ושגיאה כאן שוברת כל בקשה בדף.
+  try {
+    if (new URL(url).origin !== self.location.origin) return;
+  } catch (e) {
+    return;
+  }
   event.respondWith(
     caches.match(event.request).then((cached) => {
       const networkFetch = fetch(event.request)
