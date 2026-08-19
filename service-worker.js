@@ -7,6 +7,15 @@
  *  בנוסף: מטפל בהתראות Push (Firebase Cloud Messaging) שמגיעות גם
  *  כשהאפליקציה סגורה לגמרי - זו הסיבה שחייבים לטעון את Firebase כאן,
  *  לא רק ב-app.js (ש"ישן" ברקע כשהאפליקציה סגורה).
+ *
+ *  ── תיקון הפוש הכפול ──
+ *  קודם השרת שלח payload עם בלוק notification. במצב כזה הדפדפן מציג
+ *  התראה בעצמו, אוטומטית, ובמקביל onBackgroundMessage הציג עוד אחת -
+ *  ולכן הגיעו שתי התראות על כל הודעה.
+ *  עכשיו השרת שולח data בלבד (ראה sendPushToToken_ ב-Code.gs), הדפדפן
+ *  לא מציג כלום מעצמו, והקוד כאן הוא היחיד שמציג. פעם אחת.
+ *  חשוב: שני הצדדים חייבים להתעדכן יחד. אם רק אחד מהם מעודכן -
+ *  או שיהיו שתי התראות (ישן+ישן), או שלא תהיה אף אחת (חדש+ישן).
  * ===================================================================== */
 
 importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js');
@@ -23,25 +32,63 @@ firebase.initializeApp({
 });
 
 const messaging = firebase.messaging();
+
 messaging.onBackgroundMessage((payload) => {
-  const title = (payload.notification && payload.notification.title) || 'דוח נוכחות כבאים';
-  const body = (payload.notification && payload.notification.body) || '';
-  const isUrgent = payload.data && payload.data.urgent === 'true';
-  // תג ייחודי מבוסס תוכן ההתראה - אם אותה התראה בדיוק מגיעה פעמיים
-  // (למשל בגלל כמה טאבים פתוחים של האפליקציה בו-זמנית), הדפדפן
-  // מחליף את ההתראה הקיימת במקום להציג שתי התראות נפרדות.
+  const data = payload.data || {};
+
+  // הכותרת והגוף מגיעים עכשיו מ-data ולא מ-notification.
+  // הנפילה לאחור ל-payload.notification נשארת בכוונה: אם מסיבה כלשהי
+  // מגיעה הודעה בפורמט הישן (למשל מגרסת שרת שלא עודכנה), היא עדיין
+  // תוצג ולא תיעלם בשקט.
+  const title = data.title || (payload.notification && payload.notification.title) || 'דוח נוכחות כבאים';
+  const body = data.body || (payload.notification && payload.notification.body) || '';
+  const isUrgent = data.urgent === 'true';
+
+  // תג ייחודי מבוסס תוכן ההתראה - שכבת הגנה נוספת. אם אותה התראה
+  // בדיוק מגיעה פעמיים (למשל כמה מכשירים רשומים לאותו משתמש),
+  // הדפדפן מחליף את הקיימת במקום להציג שתיים.
   const notificationTag = (title + '|' + body).slice(0, 100);
-  self.registration.showNotification(title, {
+
+  const options = {
     body: body,
     icon: './icons/icon-192.png',
     badge: './icons/icon-192.png',
     tag: notificationTag,
-    requireInteraction: isUrgent, // התראה דחופה נשארת על המסך עד שנוגעים בה
-    vibrate: isUrgent ? [300, 150, 300, 150, 300, 150, 600] : undefined
-  });
+    renotify: isUrgent, // התראה דחופה תרטיט שוב גם אם דורסת קיימת
+    requireInteraction: isUrgent, // נשארת על המסך עד שנוגעים בה
+    data: {
+      urgent: isUrgent,
+      url: data.url || './'
+    }
+  };
+
+  if (isUrgent) {
+    options.vibrate = [300, 150, 300, 150, 300, 150, 600];
+  }
+
+  return self.registration.showNotification(title, options);
 });
 
-const CACHE_NAME = 'ds102-shell-v47';
+// לחיצה על ההתראה: מביאה לחזית טאב פתוח של האפליקציה אם יש אחד,
+// ואם אין - פותחת חדש. בלי זה לחיצה על ההתראה פשוט לא עושה כלום.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) || './';
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ('focus' in client) {
+          client.postMessage({ type: 'NOTIFICATION_CLICK', url: targetUrl });
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(targetUrl);
+    })
+  );
+});
+
+const CACHE_NAME = 'ds102-shell-v48';
 const SHELL_FILES = [
   './',
   './index.html',
@@ -74,14 +121,11 @@ self.addEventListener('activate', (event) => {
 // קבצים סטטיים - cache-first עם נפילה חזרה לרשת, ועדכון המטמון ברקע.
 self.addEventListener('fetch', (event) => {
   const url = event.request.url;
-
   if (url.includes('script.google.com')) {
     event.respondWith(fetch(event.request));
     return;
   }
-
   if (event.request.method !== 'GET') return;
-
   event.respondWith(
     caches.match(event.request).then((cached) => {
       const networkFetch = fetch(event.request)
