@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v65';
+const APP_VERSION = 'v66';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -2362,7 +2362,8 @@ const AVAILABLE_SHORTCUTS = [
   { id: 'sign_hour_reports', label: '✍️ חתימת דוחות שעות' },
   { id: 'commander_swaps', label: '🔄 החלפות משמרת לאישור' },
   { id: 'guard_calendar', label: '🛡️ יומן אבטחות אירועים' },
-  { id: 'urgent_call', label: '🚒🚨 קריאת פתע' }
+  { id: 'urgent_call', label: '🚒🚨 קריאת פתע' },
+  { id: 'commander_vacations', label: '🏖️ בקשות חופש לאישור' }
 ];
 
 function getMyShortcuts() {
@@ -2454,6 +2455,8 @@ function triggerShortcut(id) {
     openGuardCalendarModal();
   } else if (id === 'urgent_call') {
     openUrgentHistoryModal();
+  } else if (id === 'commander_vacations') {
+    openCommanderVacationsModal();
   }
 }
 
@@ -5071,11 +5074,95 @@ nav.bottom-tools:not(#shortcuts-bar) .tool-btn i {
 
 /* ── כפתור ההוספה הצף ── */
 .fab {
-  width: 64px !important;
-  height: 64px !important;
+  width: 62px !important;
+  height: 62px !important;
   font-size: 32px !important;
+  font-weight: 300 !important;
   border-radius: 50% !important;
-}`;
+  transition: transform .3s cubic-bezier(.32,.72,0,1) !important;
+  z-index: 900 !important;
+}
+.fab.drawer-open { transform: rotate(135deg) !important; }
+
+/* ── מגירת הפעולות ── */
+/* נשלפת מלמטה, בדיוק במקום שהאגודל נמצא בו. לא מסך מלא בכוונה - */
+/* רואים חלק מהמסך מאחור ולא מאבדים את ההקשר. */
+#ds-scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.42);
+  opacity: 0;
+  transition: opacity .3s ease;
+  z-index: 940;
+  pointer-events: none;
+}
+#ds-scrim.show { opacity: 1; pointer-events: auto; }
+
+#ds-drawer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #fff;
+  border-radius: 22px 22px 0 0;
+  padding: 12px 14px calc(22px + env(safe-area-inset-bottom, 0px));
+  z-index: 950;
+  transform: translateY(105%);
+  transition: transform .38s cubic-bezier(.32,.72,0,1);
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 -6px 24px rgba(0,0,0,.14);
+}
+#ds-drawer.show { transform: translateY(0); }
+
+.ds-handle {
+  width: 40px;
+  height: 4px;
+  background: #ddd;
+  border-radius: 2px;
+  margin: 0 auto 14px;
+}
+.ds-group-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #999;
+  margin: 4px 2px 8px;
+}
+.ds-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 9px;
+  margin-bottom: 14px;
+}
+.ds-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 14px 4px;
+  border-radius: 15px;
+  background: #FAF8F6;
+  border: 1.5px solid transparent;
+  font-family: inherit;
+  cursor: pointer;
+  min-height: 88px;
+}
+.ds-tile i { font-size: 26px; color: #555; line-height: 1; }
+.ds-tile span {
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.25;
+  color: #222;
+}
+.ds-tile.primary i { color: #C1272D; }
+.ds-tile.hot {
+  background: #FFF0F0;
+  border-color: #C1272D;
+}
+.ds-tile.hot i { color: #C1272D; }
+.ds-tile:active { transform: scale(.96); }`;
   document.head.appendChild(st);
 }
 
@@ -5092,7 +5179,8 @@ const SC_ICONS = {
   sign_hour_reports: 'ti-signature',
   commander_swaps: 'ti-arrows-exchange',
   guard_calendar: 'ti-shield-half',
-  urgent_call: 'ti-bell-ringing'
+  urgent_call: 'ti-bell-ringing',
+  commander_vacations: 'ti-beach'
 };
 
 function scLabel(raw) {
@@ -5280,8 +5368,7 @@ const BTN_ICONS = {
   'calendar-btn':           { icon: 'ti-calendar' },
   'admin-btn':              { icon: 'ti-settings' },
   'logout-btn':             { icon: 'ti-logout',          label: 'יציאה' },
-  'upload-doc-btn':         { icon: 'ti-file-upload',     label: 'העלאת מסמך חדש' },
-  'add-shift-btn':          { icon: 'ti-plus' }
+  'upload-doc-btn':         { icon: 'ti-file-upload',     label: 'העלאת מסמך חדש' }
 };
 
 function applyButtonIcons() {
@@ -5312,5 +5399,364 @@ showScreen = function (id) {
   _origShowScreenIcons(id);
   setTimeout(applyButtonIcons, 30);
 };
+
+
+// =====================================================================
+//  מגירת הפעולות
+// =====================================================================
+//  כפתור הפלוס הקיים (#add-shift-btn) כבר לא פותח ישירות את טופס
+//  הדיווח - הוא פותח מגירה שנשלפת מלמטה עם כל הפעולות. דיווח יום
+//  נשאר הפעולה הראשונה בה, כך שמי שרגיל ללחוץ פלוס ולדווח מגיע
+//  לאותו מקום בלחיצה אחת נוספת בלבד.
+
+const DRAWER_MINE = [
+  { id: 'new_shift', icon: 'ti-clock-plus',       label: 'דיווח יום',    primary: true,
+    run: () => openShiftModal(null, null) },
+  { id: 'swap',      icon: 'ti-arrows-exchange',  label: 'החלפת משמרת',  primary: true,
+    run: () => openMySwapsModal() },
+  { id: 'vacation',  icon: 'ti-beach',            label: 'בקשת חופש',    primary: true,
+    run: () => openVacationRequestModal() },
+  { id: 'docs',      icon: 'ti-folder',           label: 'מסמכים',
+    run: () => { showScreen('screen-documents'); loadMyDocuments(); } },
+  { id: 'myguard',   icon: 'ti-shield-half',      label: 'אבטחות שלי',
+    run: () => openMyGuardEventsModal() },
+  { id: 'mysig',     icon: 'ti-signature',        label: 'החתימה שלי',
+    run: () => openMySignatureModal() }
+];
+
+const DRAWER_COMMAND = [
+  { id: 'urgent',    icon: 'ti-bell-ringing',     label: 'קריאת פתע',    hot: true,
+    run: () => openUrgentHistoryModal() },
+  { id: 'cmdswap',   icon: 'ti-arrows-exchange',  label: 'אישור החלפות', primary: true,
+    run: () => openCommanderSwapsModal() },
+  { id: 'cmdmp',     icon: 'ti-file-alert',       label: 'אי החתמה',     primary: true,
+    run: () => openCommanderMissedPunchModal() },
+  { id: 'cmdsign',   icon: 'ti-signature',        label: 'חתימת דוחות',
+    run: () => openHourSignModal() },
+  { id: 'cmdguard',  icon: 'ti-calendar-event',   label: 'יומן אבטחות',
+    run: () => openGuardCalendarModal() },
+  { id: 'cmdmsg',    icon: 'ti-speakerphone',     label: 'הודעה לצוות',
+    run: () => {
+      adminMessageTarget = null;
+      $('admin-message-modal-title').textContent = 'הודעה לכולם';
+      $('admin-message-text').value = '';
+      $('admin-message-error').classList.add('hidden');
+      $('admin-message-modal').classList.remove('hidden');
+    } }
+];
+
+let drawerBuilt = false;
+let drawerOpen = false;
+
+function buildDrawer() {
+  if (drawerBuilt) return;
+  drawerBuilt = true;
+  injectDesignStyles();
+
+  const scrim = document.createElement('div');
+  scrim.id = 'ds-scrim';
+  document.body.appendChild(scrim);
+
+  const drawer = document.createElement('div');
+  drawer.id = 'ds-drawer';
+  document.body.appendChild(drawer);
+
+  scrim.addEventListener('click', () => toggleDrawer(false));
+
+  // גרירה למטה סוגרת - הדרך הטבעית לסגור מגירה בטלפון
+  let startY = null;
+  drawer.addEventListener('touchstart', (e) => { startY = e.touches[0].clientY; }, { passive: true });
+  drawer.addEventListener('touchmove', (e) => {
+    if (startY === null) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy > 0) drawer.style.transform = 'translateY(' + dy + 'px)';
+  }, { passive: true });
+  drawer.addEventListener('touchend', () => {
+    const m = /translateY\((\d+(?:\.\d+)?)px\)/.exec(drawer.style.transform || '');
+    const dy = m ? parseFloat(m[1]) : 0;
+    drawer.style.transform = '';
+    if (dy > 90) toggleDrawer(false);
+    startY = null;
+  });
+}
+
+function tileHtml(a) {
+  const cls = 'ds-tile' + (a.hot ? ' hot' : (a.primary ? ' primary' : ''));
+  return '<button type="button" class="' + cls + '" data-act="' + a.id + '">' +
+    '<i class="ti ' + a.icon + '"></i><span>' + a.label + '</span></button>';
+}
+
+function renderDrawer() {
+  const drawer = document.getElementById('ds-drawer');
+  if (!drawer) return;
+
+  let html = '<div class="ds-handle"></div>';
+
+  if (state.isManager) {
+    // שתי קבוצות עם כותרת. תשע משבצות ברצף בלי הפרדה זה יותר מדי
+    // לסרוק בשנייה, וההפרדה מבהירה מה אישי ומה פיקודי.
+    html += '<div class="ds-group-title">שלי</div>' +
+      '<div class="ds-grid">' + DRAWER_MINE.map(tileHtml).join('') + '</div>' +
+      '<div class="ds-group-title">ניהול משמרת</div>' +
+      '<div class="ds-grid">' + DRAWER_COMMAND.map(tileHtml).join('') + '</div>';
+  } else {
+    html += '<div class="ds-grid">' + DRAWER_MINE.map(tileHtml).join('') + '</div>';
+  }
+
+  drawer.innerHTML = html;
+
+  const all = DRAWER_MINE.concat(DRAWER_COMMAND);
+  drawer.querySelectorAll('.ds-tile').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const act = all.find(a => a.id === btn.dataset.act);
+      toggleDrawer(false);
+      if (!act) return;
+      setTimeout(() => {
+        try { act.run(); } catch (e) { showToast('הפעולה לא זמינה כרגע'); }
+      }, 180);
+    });
+  });
+}
+
+function toggleDrawer(force) {
+  buildDrawer();
+  const drawer = document.getElementById('ds-drawer');
+  const scrim = document.getElementById('ds-scrim');
+  const fab = document.getElementById('add-shift-btn');
+  if (!drawer || !scrim) return;
+
+  drawerOpen = typeof force === 'boolean' ? force : !drawerOpen;
+
+  if (drawerOpen) renderDrawer();
+
+  drawer.classList.toggle('show', drawerOpen);
+  scrim.classList.toggle('show', drawerOpen);
+  if (fab) fab.classList.toggle('drawer-open', drawerOpen);
+}
+
+// מחליף את התנהגות כפתור הפלוס: פותח מגירה במקום את טופס הדיווח.
+// שכפול הכפתור מסיר את המאזין הישן בלי לגעת ב-index.html.
+function hijackFab() {
+  const old = document.getElementById('add-shift-btn');
+  if (!old || old.dataset.drawerized === '1') return;
+
+  const fresh = old.cloneNode(true);
+  fresh.dataset.drawerized = '1';
+  fresh.innerHTML = '+';
+  old.parentNode.replaceChild(fresh, old);
+
+  fresh.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleDrawer();
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => { buildDrawer(); hijackFab(); });
+buildDrawer();
+hijackFab();
+
+
+// =====================================================================
+//  בקשות חופש — ממשק
+// =====================================================================
+
+async function openVacationRequestModal() {
+  const body = mpModal('vac-modal', 'בקשות חופש');
+  body.innerHTML = '<div class="empty-state">טוען...</div>';
+
+  try {
+    const res = await callApi('GET', 'listMyVacationRequests', { code: state.code });
+    const items = res.requests || [];
+
+    const colorOf = (st) =>
+      st === 'אושר' ? '#1D7A5C' :
+      (st === 'נדחה' || st === 'בוטל') ? '#C1272D' : '#B8860B';
+
+    body.innerHTML =
+      '<button id="vac-new" class="btn btn-primary" style="width:100%;margin-bottom:14px">' +
+      'בקשת חופש חדשה</button>' +
+      (items.length === 0
+        ? '<div class="empty-state">אין בקשות חופש</div>'
+        : items.map(r =>
+            '<div class="shift-card" style="flex-direction:column;align-items:stretch;' +
+            'border-right:5px solid ' + colorOf(r.status) + '">' +
+            '<div style="font-weight:800;font-size:14.5px">' +
+            mpDateLabel(r.fromDate) + ' — ' + mpDateLabel(r.toDate) +
+            '  <span style="font-weight:600;color:var(--text-muted)">(' + r.days + ' ימים)</span></div>' +
+            '<div style="font-size:13px;color:var(--text-muted);margin-top:3px">' +
+            escapeHtml(r.reason || '') + '</div>' +
+            '<div style="font-size:13.5px;font-weight:700;color:' + colorOf(r.status) +
+            ';margin-top:6px">' + escapeHtml(r.status) +
+            (r.commanderName ? ' · ' + escapeHtml(r.commanderName) : '') + '</div>' +
+            (r.commanderNote
+              ? '<div style="font-size:12.5px;margin-top:3px">' + escapeHtml(r.commanderNote) + '</div>'
+              : '') +
+            (r.status === 'ממתין לאישור'
+              ? '<button class="tool-btn vac-cancel" data-id="' + escapeHtml(r.id) + '" ' +
+                'style="width:auto;padding:7px 14px;margin-top:9px;color:var(--danger)">בטל בקשה</button>'
+              : '') +
+            '</div>'
+          ).join(''));
+
+    document.getElementById('vac-new').addEventListener('click', openVacationFormModal);
+
+    body.querySelectorAll('.vac-cancel').forEach(b =>
+      b.addEventListener('click', async () => {
+        if (!confirm('לבטל את הבקשה?')) return;
+        try {
+          await callApi('POST', 'cancelVacationRequest', { code: state.code, id: b.dataset.id });
+          showToast('הבקשה בוטלה');
+          openVacationRequestModal();
+        } catch (err) {
+          showToast(err.message || 'שגיאה בביטול');
+        }
+      }));
+  } catch (err) {
+    body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
+}
+
+function openVacationFormModal() {
+  const body = mpModal('vac-form-modal', 'בקשת חופש חדשה');
+  const st = 'width:100%;padding:12px;font-size:16px;border:1px solid var(--border,#ccc);' +
+    'border-radius:10px;margin-bottom:12px';
+
+  body.innerHTML =
+    '<label class="form-label" style="display:block;margin-bottom:4px">מתאריך</label>' +
+    '<input id="vac-from" type="date" style="' + st + '">' +
+    '<label class="form-label" style="display:block;margin-bottom:4px">עד תאריך</label>' +
+    '<input id="vac-to" type="date" style="' + st + '">' +
+    '<div id="vac-days" style="font-size:13.5px;color:var(--text-muted);margin-bottom:12px"></div>' +
+    '<label class="form-label" style="display:block;margin-bottom:4px">נימוק</label>' +
+    '<textarea id="vac-reason" rows="3" placeholder="לדוגמה: אירוע משפחתי" ' +
+    'style="' + st + ';resize:vertical"></textarea>' +
+    '<div id="vac-err" class="hidden" style="color:var(--danger);font-size:13.5px;margin-bottom:8px"></div>' +
+    '<button id="vac-submit" class="btn btn-primary" style="width:100%">שלח לאישור</button>';
+
+  // ספירת הימים מתעדכנת חיה, כדי שהמבקש יראה מיד כמה הוא מבקש
+  function updateDays() {
+    const f = document.getElementById('vac-from').value;
+    const t = document.getElementById('vac-to').value;
+    const el = document.getElementById('vac-days');
+    if (!f || !t) { el.textContent = ''; return; }
+    const d = Math.round((new Date(t) - new Date(f)) / 86400000) + 1;
+    el.textContent = d > 0 ? 'סה"כ ' + d + ' ימים' : 'תאריך הסיום מוקדם מתאריך ההתחלה';
+    el.style.color = d > 0 ? 'var(--text-muted)' : 'var(--danger)';
+  }
+  document.getElementById('vac-from').addEventListener('change', updateDays);
+  document.getElementById('vac-to').addEventListener('change', updateDays);
+
+  document.getElementById('vac-submit').addEventListener('click', async () => {
+    const err = document.getElementById('vac-err');
+    err.classList.add('hidden');
+    const params = {
+      fromDate: document.getElementById('vac-from').value,
+      toDate: document.getElementById('vac-to').value,
+      reason: document.getElementById('vac-reason').value.trim()
+    };
+    try {
+      const r = await callApi('POST', 'submitVacationRequest', { code: state.code, params });
+      showToast(r.message || 'הבקשה נשלחה');
+      closeMpModal('vac-form-modal');
+      openVacationRequestModal();
+    } catch (e) {
+      err.textContent = e.message || 'שגיאה בשליחה';
+      err.classList.remove('hidden');
+    }
+  });
+}
+
+// ראש משמרת — אישור ודחייה
+async function openCommanderVacationsModal() {
+  const body = mpModal('vac-cmd-modal', 'בקשות חופש לאישור');
+  body.innerHTML = '<div class="empty-state">טוען...</div>';
+
+  try {
+    const r = await callApi('GET', 'commanderListVacations', { code: state.code });
+    const pending = r.pending || [];
+
+    body.innerHTML = pending.length === 0
+      ? '<div class="empty-state">אין בקשות הממתינות לך</div>'
+      : pending.map(v =>
+          '<div class="shift-card vac-card" data-id="' + escapeHtml(v.id) + '" ' +
+          'style="flex-direction:column;align-items:stretch">' +
+          '<div style="font-weight:800;font-size:15px">' + escapeHtml(v.name) + '</div>' +
+          '<div style="font-size:13.5px;margin-top:4px">' +
+          mpDateLabel(v.fromDate) + ' — ' + mpDateLabel(v.toDate) +
+          ' (' + v.days + ' ימים)</div>' +
+          '<div style="font-size:13px;color:var(--text-muted);margin-top:3px">' +
+          escapeHtml(v.reason || '') + '</div>' +
+          '<div style="display:flex;gap:8px;margin-top:12px">' +
+          '<button class="tool-btn vac-ok" data-id="' + escapeHtml(v.id) +
+          '" style="flex:1;padding:10px;font-weight:700">אשר</button>' +
+          '<button class="tool-btn vac-no" data-id="' + escapeHtml(v.id) +
+          '" style="flex:1;padding:10px;color:var(--danger)">דחה</button>' +
+          '</div></div>'
+        ).join('');
+
+    body.querySelectorAll('.vac-ok').forEach(b =>
+      b.addEventListener('click', async () => {
+        try {
+          const res = await callApi('POST', 'commanderHandleVacation', {
+            code: state.code, id: b.dataset.id, approve: true, note: ''
+          });
+          await fadeOutCard(b.closest('.vac-card'), res.message || 'אושר');
+          openCommanderVacationsModal();
+        } catch (err) {
+          showToast(err.message || 'שגיאה באישור');
+        }
+      }));
+
+    body.querySelectorAll('.vac-no').forEach(b =>
+      b.addEventListener('click', async () => {
+        const note = prompt('נימוק לדחייה (יישלח לכבאי):');
+        if (note === null) return;
+        if (!note.trim()) { showToast('חובה לציין נימוק'); return; }
+        try {
+          await callApi('POST', 'commanderHandleVacation', {
+            code: state.code, id: b.dataset.id, approve: false, note: note
+          });
+          await fadeOutCard(b.closest('.vac-card'), 'הבקשה נדחתה');
+          openCommanderVacationsModal();
+        } catch (err) {
+          showToast(err.message || 'שגיאה בדחייה');
+        }
+      }));
+  } catch (err) {
+    body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
+}
+
+// =====================================================================
+//  נפילה לאחור לאייקונים
+// =====================================================================
+//  אם ספריית האייקונים לא נטענה (רשת חסומה, אין קליטה, מטמון ריק),
+//  האלמנטים נשארים ריקים והמשתמש רואה עיגול אדום בלי כלום. הבדיקה
+//  כאן מזהה את זה ומחליפה בטקסט, כדי שתמיד יהיה משהו על המסך.
+
+function checkIconFont() {
+  const probe = document.createElement('i');
+  probe.className = 'ti ti-plus';
+  probe.style.cssText = 'position:absolute;visibility:hidden;font-size:24px';
+  document.body.appendChild(probe);
+
+  const loaded = probe.offsetWidth > 4;
+  document.body.removeChild(probe);
+
+  if (!loaded) {
+    document.documentElement.classList.add('no-icon-font');
+    const st = document.createElement('style');
+    st.textContent =
+      '.no-icon-font .ti { display: none !important; }' +
+      '.no-icon-font .ds-tile { min-height: 62px; }' +
+      '.no-icon-font .ds-tile span { font-size: 12.5px; }' +
+      '.no-icon-font .sc-chip { padding: 12px 18px; }';
+    document.head.appendChild(st);
+  }
+  return loaded;
+}
+
+// בדיקה אחרי שנייה, כדי לתת לגופן זמן להיטען ברשת איטית
+setTimeout(checkIconFont, 1200);
 
 tryAutoLogin();
