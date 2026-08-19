@@ -41,7 +41,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v70';
+const APP_VERSION = 'v71';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -4399,44 +4399,80 @@ async function drawGuardCalendar(body) {
   const m = guardState.month;
   const startOffset = new Date(m.getFullYear(), m.getMonth(), 1).getDay();
   const daysInMonth = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  // סטטיסטיקת החודש - נותנת לראש המשמרת תמונה מיידית
+  const totalEvents = guardState.events.length;
+  const unassigned = guardState.events.filter(e => !e.fighterCodes || e.fighterCodes.length === 0).length;
 
   let cells = '';
-  for (let i = 0; i < startOffset; i++) cells += '<div></div>';
+  for (let i = 0; i < startOffset; i++) {
+    cells += '<div style="min-height:96px"></div>';
+  }
 
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = m.getFullYear() + '-' +
       String(m.getMonth() + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
     const dayEvents = guardState.events.filter(e => e.eventDate === dateStr);
-    const has = dayEvents.length > 0;
+    const isToday = dateStr === todayStr;
+
+    // כל אירוע מוצג בשמו בתוך התא, לא רק כמספר. ראש המשמרת רואה
+    // את החודש כולו במבט אחד בלי ללחוץ על כל יום בנפרד.
+    const chips = dayEvents.slice(0, 3).map(e => {
+      const noPeople = !e.fighterCodes || e.fighterCodes.length === 0;
+      return '<div style="font-size:10px;line-height:1.25;padding:3px 5px;margin-top:2px;' +
+        'border-radius:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
+        (noPeople
+          ? 'background:#FFE9E9;color:#C1272D;border:1px solid #F0B8B8'
+          : 'background:#E8F3EE;color:#1D7A5C;border:1px solid #BFE0D0') + '">' +
+        (noPeople ? '⚠ ' : '') + escapeHtml(e.title) + '</div>';
+    }).join('');
+
+    const more = dayEvents.length > 3
+      ? '<div style="font-size:9px;color:#888;margin-top:2px">+' + (dayEvents.length - 3) + ' נוספים</div>'
+      : '';
 
     cells += '<div class="guard-day" data-date="' + dateStr + '" ' +
-      'style="min-height:74px;border-radius:10px;padding:6px;cursor:pointer;' +
-      'display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:2px;' +
-      (has
-        ? 'background:#C1272D;color:#fff;border:1px solid #C1272D'
-        : 'background:#fff;border:1px solid var(--border,#ddd)') + '">' +
-      '<span style="font-size:18px;font-weight:700">' + d + '</span>' +
-      (has ? '<span style="font-size:9px;line-height:1.2;text-align:center">' +
-        dayEvents.length + ' אבטחות</span>' : '') +
-      '</div>';
+      'style="min-height:96px;border-radius:10px;padding:5px;cursor:pointer;' +
+      'display:flex;flex-direction:column;align-items:stretch;overflow:hidden;' +
+      (isToday
+        ? 'background:#FFF7F7;border:2px solid #C1272D'
+        : 'background:#fff;border:1px solid var(--border,#e2e2e2)') + '">' +
+      '<div style="font-size:15px;font-weight:800;text-align:center;' +
+      (isToday ? 'color:#C1272D' : '') + '">' + d + '</div>' +
+      chips + more + '</div>';
   }
 
   bodyEl.innerHTML =
     '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">' +
-    '<button id="guard-prev" class="tool-btn" style="width:auto;padding:6px 14px">‹</button>' +
-    '<div style="font-weight:800;font-size:15px">' +
+    '<button id="guard-prev" class="tool-btn" style="width:auto;padding:8px 16px">‹</button>' +
+    '<div style="font-weight:800;font-size:18px">' +
     MONTH_NAMES[m.getMonth()] + ' ' + m.getFullYear() + '</div>' +
-    '<button id="guard-next" class="tool-btn" style="width:auto;padding:6px 14px">›</button>' +
+    '<button id="guard-next" class="tool-btn" style="width:auto;padding:8px 16px">›</button>' +
     '</div>' +
-    '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center;' +
-    'font-size:12px;color:var(--text-muted);margin-bottom:4px">' +
+
+    '<div style="display:flex;gap:8px;margin-bottom:12px;text-align:center">' +
+    '<div style="flex:1;background:var(--surface-1,#f5f5f5);border-radius:10px;padding:9px">' +
+    '<div style="font-size:22px;font-weight:800">' + totalEvents + '</div>' +
+    '<div style="font-size:11px;color:var(--text-muted)">אירועים החודש</div></div>' +
+    '<div style="flex:1;background:var(--surface-1,#f5f5f5);border-radius:10px;padding:9px">' +
+    '<div style="font-size:22px;font-weight:800;color:' +
+    (unassigned > 0 ? '#C1272D' : '#1D7A5C') + '">' + unassigned + '</div>' +
+    '<div style="font-size:11px;color:var(--text-muted)">ללא שיבוץ</div></div>' +
+    '</div>' +
+
+    '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center;' +
+    'font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:5px">' +
     DAY_NAMES.map(d => '<div>' + d.slice(0, 1) + '</div>').join('') + '</div>' +
-    '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">' + cells + '</div>' +
-    '<div style="display:flex;gap:8px;margin-top:14px">' +
+    '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px">' + cells + '</div>' +
+
+    '<div style="display:flex;gap:8px;margin-top:16px">' +
     '<button id="guard-add" class="btn btn-primary" style="flex:1">רישום אבטחה</button>' +
-    '<button id="guard-load" class="tool-btn" style="flex:1;padding:10px">חלוקת עומס</button>' +
+    '<button id="guard-load" class="tool-btn" style="flex:1;padding:12px">חלוקת עומס</button>' +
     '</div>' +
-    '<div id="guard-day-detail" style="margin-top:12px"></div>';
+    '<button id="guard-import" class="tool-btn" style="width:100%;margin-top:8px;padding:11px">' +
+    'ייבוא אירועים מהסידור</button>' +
+    '<div id="guard-day-detail" style="margin-top:14px"></div>';
 
   document.getElementById('guard-prev').addEventListener('click', () => {
     guardState.month = new Date(m.getFullYear(), m.getMonth() - 1, 1);
@@ -4449,9 +4485,25 @@ async function drawGuardCalendar(body) {
   document.getElementById('guard-add').addEventListener('click', () => openGuardFormModal(null));
   document.getElementById('guard-load').addEventListener('click', openGuardLoadModal);
 
+  document.getElementById('guard-import').addEventListener('click', async () => {
+    if (!confirm('לייבא אירועים מסידור העבודה? אירועים שנרשמו ידנית לא ייגעו.')) return;
+    try {
+      const r = await callApi('GET', 'importGuardEvents', { code: state.code });
+      showToast('נוספו ' + (r.added || 0) + ' · עודכנו ' + (r.updated || 0));
+      drawGuardCalendar();
+    } catch (err) {
+      showToast(err.message || 'שגיאה בייבוא');
+    }
+  });
+
   bodyEl.querySelectorAll('.guard-day').forEach(cell => {
     cell.addEventListener('click', () => showGuardDay(cell.dataset.date));
   });
+
+  // פתיחה אוטומטית של היום הנוכחי, כדי שלא יראו מסך ריק מתחת ליומן
+  if (m.getMonth() === new Date().getMonth() && m.getFullYear() === new Date().getFullYear()) {
+    showGuardDay(todayStr);
+  }
 }
 
 function showGuardDay(dateStr) {
@@ -4459,39 +4511,54 @@ function showGuardDay(dateStr) {
   if (!detail) return;
   const dayEvents = guardState.events.filter(e => e.eventDate === dateStr);
 
+  let html = '<div class="stats-card-title" style="margin-bottom:8px">' +
+    mpDateLabel(dateStr) + '</div>';
+
   if (dayEvents.length === 0) {
-    detail.innerHTML =
-      '<div class="empty-state">אין אבטחות ב-' + mpDateLabel(dateStr) + '</div>' +
-      '<button class="tool-btn guard-add-for-day" data-date="' + dateStr + '" ' +
-      'style="width:100%;padding:9px">רישום אבטחה לתאריך זה</button>';
+    html += '<div class="empty-state">אין אבטחות ביום זה</div>';
   } else {
-    detail.innerHTML = dayEvents.map(e =>
-      '<div class="shift-card" style="flex-direction:column;align-items:stretch">' +
-      '<div style="font-weight:800;font-size:15px">' + escapeHtml(e.title) + '</div>' +
-      '<div style="font-size:13px;color:var(--text-muted);margin-top:2px">' +
-      mpDateLabel(e.eventDate) +
-      (e.startTime ? ' · ' + escapeHtml(e.startTime) + '-' + escapeHtml(e.endTime || '') : '') +
-      (e.location ? ' · ' + escapeHtml(e.location) : '') + '</div>' +
-      (e.commanderName
-        ? '<div style="font-size:13.5px;margin-top:6px"><b>מפקד צוות:</b> ' +
-          escapeHtml(e.commanderName) + '</div>'
-        : '') +
-      '<div style="font-size:13.5px;margin-top:3px"><b>לוחמים:</b> ' +
-      escapeHtml(e.fighterNames) + '</div>' +
-      (e.notes ? '<div style="font-size:12.5px;color:var(--text-muted);margin-top:4px">' +
-        escapeHtml(e.notes) + '</div>' : '') +
-      '<div style="font-size:12px;color:var(--text-muted);margin-top:6px">נרשם על ידי ' +
-      escapeHtml(e.createdBy || '') + '</div>' +
-      '<button class="tool-btn guard-delete" data-id="' + escapeHtml(e.id) + '" ' +
-      'style="width:auto;padding:6px 12px;margin-top:8px;color:var(--danger)">מחק</button>' +
-      '</div>'
-    ).join('') +
-    '<button class="tool-btn guard-add-for-day" data-date="' + dateStr + '" ' +
-    'style="width:100%;padding:9px;margin-top:6px">רישום אבטחה נוספת</button>';
+    html += dayEvents.map(e => {
+      const noPeople = !e.fighterCodes || e.fighterCodes.length === 0;
+      return '<div class="shift-card" style="flex-direction:column;align-items:stretch;' +
+        'border-right:5px solid ' + (noPeople ? '#C1272D' : '#1D7A5C') + '">' +
+        '<div style="font-weight:800;font-size:16px">' + escapeHtml(e.title) + '</div>' +
+        '<div style="font-size:13px;color:var(--text-muted);margin-top:3px">' +
+        (e.startTime ? escapeHtml(e.startTime) + ' - ' + escapeHtml(e.endTime || '') : 'ללא שעות') +
+        (e.location ? ' · ' + escapeHtml(e.location) : '') + '</div>' +
+        (e.commanderName
+          ? '<div style="font-size:14px;margin-top:7px"><b>מפקד צוות:</b> ' +
+            escapeHtml(e.commanderName) + '</div>'
+          : '') +
+        '<div style="font-size:14px;margin-top:4px"><b>לוחמים:</b> ' +
+        (noPeople
+          ? '<span style="color:var(--danger);font-weight:700">טרם שובצו</span>'
+          : escapeHtml(e.fighterNames)) + '</div>' +
+        (e.notes
+          ? '<div style="font-size:12.5px;color:var(--text-muted);margin-top:4px">' +
+            escapeHtml(e.notes) + '</div>'
+          : '') +
+        '<div style="display:flex;gap:8px;margin-top:11px;flex-wrap:wrap">' +
+        '<button class="tool-btn guard-assign" data-id="' + escapeHtml(e.id) + '" ' +
+        'style="flex:1;padding:10px;font-weight:700">שבץ לוחמים</button>' +
+        '<button class="tool-btn guard-delete" data-id="' + escapeHtml(e.id) + '" ' +
+        'style="width:auto;padding:10px 16px;color:var(--danger)">מחק</button>' +
+        '</div>' +
+        '<div style="font-size:11.5px;color:var(--text-muted);margin-top:7px">' +
+        'מקור: ' + escapeHtml(e.createdBy || '') + '</div>' +
+        '</div>';
+    }).join('');
   }
+
+  html += '<button class="tool-btn guard-add-for-day" data-date="' + dateStr + '" ' +
+    'style="width:100%;padding:11px;margin-top:6px">רישום אבטחה לתאריך זה</button>';
+
+  detail.innerHTML = html;
 
   detail.querySelectorAll('.guard-add-for-day').forEach(b =>
     b.addEventListener('click', () => openGuardFormModal(b.dataset.date)));
+
+  detail.querySelectorAll('.guard-assign').forEach(b =>
+    b.addEventListener('click', () => openAssignModal(b.dataset.id)));
 
   detail.querySelectorAll('.guard-delete').forEach(b =>
     b.addEventListener('click', async () => {
@@ -4504,6 +4571,82 @@ function showGuardDay(dateStr) {
         showToast(err.message || 'שגיאה במחיקה');
       }
     }));
+}
+
+// שיבוץ מהיר לאירוע קיים. מציג לצד כל שם כמה אבטחות הוא כבר עשה
+// ברבעון, כדי שהשיבוץ ייעשה לפי נתון ולא לפי זיכרון.
+async function openAssignModal(eventId) {
+  const ev = guardState.events.find(e => e.id === eventId);
+  if (!ev) { showToast('האירוע לא נמצא'); return; }
+
+  const body = mpModal('guard-assign-modal', 'שיבוץ — ' + ev.title);
+  body.innerHTML = '<div class="empty-state">טוען...</div>';
+
+  try {
+    if (!guardState.people) {
+      const res = await callApi('GET', 'listSwapCandidates', { code: state.code });
+      guardState.people = res.people || [];
+    }
+
+    let loadMap = {};
+    try {
+      const lr = await callApi('GET', 'guardLoadReport', { code: state.code });
+      (lr.rows || []).forEach(r => { loadMap[r.code] = r.count; });
+    } catch (e) { loadMap = {}; }
+
+    const current = ev.fighterCodes || [];
+
+    // מיון: מי שיצא הכי פחות מופיע ראשון
+    const sorted = guardState.people.slice().sort((a, b) =>
+      (loadMap[a.code] || 0) - (loadMap[b.code] || 0));
+
+    body.innerHTML =
+      '<div style="font-size:13.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.6">' +
+      mpDateLabel(ev.eventDate) +
+      (ev.startTime ? ' · ' + ev.startTime + '-' + (ev.endTime || '') : '') + '<br>' +
+      'הרשימה ממוינת מהפחות למרובה — מי שיצא הכי מעט מופיע ראשון.</div>' +
+      '<div style="max-height:52vh;overflow-y:auto;border:1px solid var(--border,#ddd);' +
+      'border-radius:10px;padding:8px;margin-bottom:12px">' +
+      sorted.map(p => {
+        const n = loadMap[p.code] || 0;
+        return '<label style="display:flex;align-items:center;gap:10px;padding:10px 4px;' +
+          'cursor:pointer;border-bottom:1px solid #f0f0f0">' +
+          '<input type="checkbox" class="ga-cb" value="' + escapeHtml(p.code) + '" ' +
+          (current.indexOf(p.code) !== -1 ? 'checked' : '') +
+          ' style="width:19px;height:19px;cursor:pointer">' +
+          '<span style="flex:1;font-size:15px">' + escapeHtml(p.name) +
+          (p.team ? ' <span style="color:var(--text-muted);font-size:12.5px">· ' +
+            escapeHtml(p.team) + '</span>' : '') + '</span>' +
+          '<span style="font-size:14px;font-weight:800;color:' +
+          (n === 0 ? '#C1272D' : 'var(--text-muted)') + '">' + n + '</span></label>';
+      }).join('') + '</div>' +
+      '<button id="ga-save" class="btn btn-primary" style="width:100%">שמור שיבוץ</button>';
+
+    document.getElementById('ga-save').addEventListener('click', async () => {
+      const codes = Array.from(document.querySelectorAll('.ga-cb:checked')).map(cb => cb.value);
+      if (codes.length === 0) { showToast('יש לסמן לפחות לוחם אחד'); return; }
+
+      // אין נקודת עדכון נפרדת - מוחקים ויוצרים מחדש עם אותם פרטים
+      try {
+        await callApi('POST', 'deleteGuardEvent', { code: state.code, eventId: ev.id });
+        await callApi('POST', 'createGuardEvent', {
+          code: state.code,
+          params: {
+            eventDate: ev.eventDate, title: ev.title, location: ev.location,
+            startTime: ev.startTime, endTime: ev.endTime,
+            teamCommanderCode: '', fighterCodes: codes, notes: ev.notes
+          }
+        });
+        showToast('השיבוץ נשמר');
+        closeMpModal('guard-assign-modal');
+        await drawGuardCalendar();
+      } catch (err) {
+        showToast(err.message || 'שגיאה בשמירה');
+      }
+    });
+  } catch (err) {
+    body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
 }
 
 async function openGuardFormModal(presetDate) {
@@ -5427,23 +5570,23 @@ document.addEventListener('DOMContentLoaded', () => {
 //  שונה בכל מכשיר ומטושטש בחלקם; אייקון וקטורי חד ואחיד בכל מסך.
 
 const BTN_ICONS = {
-  'check-issues-btn':       { icon: 'ti-search',          label: 'בדוק תקינות' },
-  'recalc-btn':             { icon: 'ti-refresh',         label: 'חשב מחדש' },
-  'clear-month-btn':        { icon: 'ti-eraser',          label: 'נקה חודש' },
-  'my-signature-btn':       { icon: 'ti-signature',       label: 'חתימה' },
-  'my-swaps-btn':           { icon: 'ti-arrows-exchange', label: 'החלפות' },
-  'my-guard-btn':           { icon: 'ti-shield-half',     label: 'אבטחות' },
-  'help-btn-app':           { icon: 'ti-help-circle' },
-  'enable-push-btn':        { icon: 'ti-bell' },
-  'send-admin-message-btn': { icon: 'ti-send' },
-  'documents-btn':          { icon: 'ti-folder' },
-  'procedures-btn':         { icon: 'ti-clipboard-text' },
-  'team-btn':               { icon: 'ti-users' },
-  'shift-team-btn':         { icon: 'ti-users-group' },
-  'calendar-btn':           { icon: 'ti-calendar' },
-  'admin-btn':              { icon: 'ti-settings' },
-  'logout-btn':             { icon: 'ti-logout',          label: 'יציאה' },
-  'upload-doc-btn':         { icon: 'ti-file-upload',     label: 'העלאת מסמך חדש' }
+  'check-issues-btn':       { icon: 'ti-search',          fb: '🔍', label: 'בדוק תקינות' },
+  'recalc-btn':             { icon: 'ti-refresh',         fb: '🔄', label: 'חשב מחדש' },
+  'clear-month-btn':        { icon: 'ti-eraser',          fb: '🧹', label: 'נקה חודש' },
+  'my-signature-btn':       { icon: 'ti-signature',       fb: '✍️', label: 'חתימה' },
+  'my-swaps-btn':           { icon: 'ti-arrows-exchange', fb: '🔁', label: 'החלפות' },
+  'my-guard-btn':           { icon: 'ti-shield-half',     fb: '🛡️', label: 'אבטחות' },
+  'help-btn-app':           { icon: 'ti-help-circle',     fb: '❓' },
+  'enable-push-btn':        { icon: 'ti-bell',            fb: '🔔' },
+  'send-admin-message-btn': { icon: 'ti-send',            fb: '✉️' },
+  'documents-btn':          { icon: 'ti-folder',          fb: '📁' },
+  'procedures-btn':         { icon: 'ti-clipboard-text',  fb: '📋' },
+  'team-btn':               { icon: 'ti-users',           fb: '👥' },
+  'shift-team-btn':         { icon: 'ti-users-group',     fb: '🚒' },
+  'calendar-btn':           { icon: 'ti-calendar',        fb: '📅' },
+  'admin-btn':              { icon: 'ti-settings',        fb: '⚙️' },
+  'logout-btn':             { icon: 'ti-logout',          fb: '🚪', label: 'יציאה' },
+  'upload-doc-btn':         { icon: 'ti-file-upload',     fb: '📤', label: 'העלאת מסמך חדש' }
 };
 
 function applyButtonIcons() {
@@ -5454,7 +5597,10 @@ function applyButtonIcons() {
     const def = BTN_ICONS[id];
     const badge = el.querySelector('.badge, [id$="-badge"]');
 
+    // האמוג'י תמיד שם, מוסתר כל עוד הגופן נטען. אם הוא לא נטען -
+    // ה-CSS חושף אותו, ואין כפתור ריק על המסך.
     el.innerHTML = '<i class="ti ' + def.icon + '"></i>' +
+      '<span class="ds-fallback" style="display:none">' + (def.fb || '•') + '</span>' +
       (def.label ? '<span>' + def.label + '</span>' : '');
 
     // הבאדג' של ההתראות חייב לשרוד את ההחלפה
