@@ -238,8 +238,9 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
   }
 
   flushOfflineQueue();
-  renderShortcutsBar();
+  loadShortcutsFromServer();
   startPersonalAlertsPolling();
+  updateFabVisibility();
 }
 
 // רענון אוטומטי כל 90 שניות, אבל רק כשהמסך באמת פעיל. אם האפליקציה
@@ -4905,5 +4906,380 @@ async function openUrgentHistoryModal() {
     body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
   }
 }
+
+
+// =====================================================================
+//  שכבת עיצוב — אייקונים, תפריט רדיאלי, וכפתורים גדולים
+// =====================================================================
+//  כל ה-CSS כאן מוזרק מ-JS ולא מ-style.css, כדי שהשדרוג לא ידרוש
+//  שינוי בקבצים הקיימים. אם משהו כאן נשבר, מחיקת הבלוק מחזירה את
+//  המצב הקודם בדיוק.
+
+// ספריית אייקונים וקטורית במקום אמוג'י. אמוג'י נראה שונה בכל מכשיר
+// ומטושטש בחלקם; אייקון וקטורי חד ואחיד בכל מסך.
+(function loadIconFont() {
+  if (document.getElementById('tabler-icons-css')) return;
+  const link = document.createElement('link');
+  link.id = 'tabler-icons-css';
+  link.rel = 'stylesheet';
+  link.href = 'https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/3.7.0/tabler-icons.min.css';
+  document.head.appendChild(link);
+})();
+
+function injectDesignStyles() {
+  if (document.getElementById('ds102-design-v2')) return;
+  const st = document.createElement('style');
+  st.id = 'ds102-design-v2';
+  st.textContent = `
+/* ── כותרת: מונעת מכפתור היציאה לצאת מהמסך במצב אנכי ── */
+.app-header, header {
+  flex-wrap: nowrap !important;
+  gap: 4px !important;
+  padding-inline: 8px !important;
+  overflow: visible !important;
+}
+.app-header .tool-btn, header .tool-btn,
+.app-header button, header button {
+  flex: 0 0 auto !important;
+  min-width: 0 !important;
+}
+#user-name {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 15px !important;
+}
+#logout-btn {
+  order: -1 !important;
+  padding: 8px 12px !important;
+  font-size: 13px !important;
+  white-space: nowrap !important;
+}
+
+/* ── מטרות מגע גדולות יותר ── */
+.tool-btn {
+  min-height: 46px !important;
+  font-size: 15px !important;
+  border-radius: 12px !important;
+}
+.btn, .btn-primary, .btn-install {
+  min-height: 52px !important;
+  font-size: 16px !important;
+  border-radius: 14px !important;
+}
+.shift-card { padding: 14px !important; }
+
+/* ── סרגל קיצורים כצ'יפים ── */
+#shortcuts-bar {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  padding: 10px 12px !important;
+}
+.sc-chip {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 7px;
+  background: #fff;
+  border: 1.5px solid var(--border, #ddd);
+  border-radius: 24px;
+  padding: 11px 16px;
+  font-size: 14px;
+  font-family: inherit;
+  font-weight: 600;
+  color: var(--text-primary, #222);
+  cursor: pointer;
+  line-height: 1;
+}
+.sc-chip i { font-size: 19px; color: #C1272D; }
+.sc-chip.sc-add { border-style: dashed; color: #888; }
+.sc-chip.sc-add i { color: #888; }
+
+/* ── כפתור הפלוס והתפריט הרדיאלי ── */
+#ds-fab {
+  position: fixed;
+  bottom: 22px;
+  right: 18px;
+  width: 66px;
+  height: 66px;
+  border-radius: 50%;
+  background: #C1272D;
+  color: #fff;
+  border: none;
+  font-size: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1200;
+  transition: transform .25s ease;
+}
+#ds-fab.open { transform: rotate(45deg); }
+
+.ds-radial {
+  position: fixed;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2.5px solid #C1272D;
+  color: #C1272D;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  cursor: pointer;
+  z-index: 1199;
+  opacity: 0;
+  transform: scale(.4);
+  transition: opacity .22s ease, transform .22s cubic-bezier(.34,1.56,.64,1);
+  pointer-events: none;
+  font-family: inherit;
+}
+.ds-radial.show { opacity: 1; transform: scale(1); pointer-events: auto; }
+.ds-radial i { font-size: 23px; }
+.ds-radial span { font-size: 8.5px; font-weight: 700; line-height: 1; }
+`;
+  document.head.appendChild(st);
+}
+
+// ---------------------------------------------------------------------
+//  מיפוי קיצור לאייקון
+// ---------------------------------------------------------------------
+const SC_ICONS = {
+  broadcast_all: 'ti-speakerphone',
+  add_manager: 'ti-user-plus',
+  upload_procedure: 'ti-file-upload',
+  confirmable_broadcast: 'ti-checkbox',
+  missed_punch: 'ti-file-alert',
+  create_missed_punch: 'ti-alert-triangle',
+  sign_hour_reports: 'ti-signature',
+  commander_swaps: 'ti-arrows-exchange',
+  guard_calendar: 'ti-shield-half',
+  urgent_call: 'ti-bell-ringing'
+};
+
+function scLabel(raw) {
+  // מסיר את האמוג'י מתחילת התווית - האייקון מחליף אותו
+  return String(raw || '').replace(/^[^\u0590-\u05FFa-zA-Z]+/, '').trim();
+}
+
+// ---------------------------------------------------------------------
+//  התפריט הרדיאלי
+// ---------------------------------------------------------------------
+const FAB_ACTIONS = [
+  { id: 'new_shift', icon: 'ti-clock-plus', label: 'דיווח', run: () => openShiftModal(null, null) },
+  { id: 'swap', icon: 'ti-arrows-exchange', label: 'החלפה', run: () => openMySwapsModal() },
+  { id: 'docs', icon: 'ti-folder', label: 'מסמכים', run: () => { showScreen('screen-documents'); loadMyDocuments(); } },
+  { id: 'guard', icon: 'ti-shield-half', label: 'אבטחות', run: () => openMyGuardEventsModal() },
+  { id: 'sign', icon: 'ti-signature', label: 'חתימה', run: () => openMySignatureModal() }
+];
+
+let fabOpen = false;
+
+function buildFab() {
+  injectDesignStyles();
+  if (document.getElementById('ds-fab')) return;
+
+  const fab = document.createElement('button');
+  fab.id = 'ds-fab';
+  fab.type = 'button';
+  fab.setAttribute('aria-label', 'תפריט פעולות');
+  fab.innerHTML = '<i class="ti ti-plus"></i>';
+  document.body.appendChild(fab);
+
+  // רבע מעגל מהכפתור כלפי מעלה ושמאלה - האזור שהאגודל מגיע אליו
+  // בלי לשנות אחיזה. רדיוס 118 מספיק כדי שהאייקונים לא ייגעו זה בזה.
+  const R = 118;
+  const nodes = FAB_ACTIONS.map((a, k) => {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.className = 'ds-radial';
+    el.innerHTML = '<i class="ti ' + a.icon + '"></i><span>' + a.label + '</span>';
+    el.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      toggleFab(false);
+      try { a.run(); } catch (e) { showToast('הפעולה לא זמינה'); }
+    });
+    document.body.appendChild(el);
+    return { el: el, angle: 90 + k * (90 / (FAB_ACTIONS.length - 1)) };
+  });
+
+  function toggleFab(force) {
+    fabOpen = typeof force === 'boolean' ? force : !fabOpen;
+    fab.classList.toggle('open', fabOpen);
+
+    nodes.forEach((n, k) => {
+      if (fabOpen) {
+        const rad = n.angle * Math.PI / 180;
+        // הכפתור יושב 18 מימין ו-22 מלמטה, מרכזו ב-51/55
+        n.el.style.right = (51 + R * Math.cos(rad) - 31) + 'px';
+        n.el.style.bottom = (55 + R * Math.sin(rad) - 31) + 'px';
+        n.el.style.left = 'auto';
+        setTimeout(() => n.el.classList.add('show'), k * 45);
+      } else {
+        n.el.classList.remove('show');
+      }
+    });
+  }
+
+  fab.addEventListener('click', (ev) => { ev.stopPropagation(); toggleFab(); });
+  document.addEventListener('click', () => { if (fabOpen) toggleFab(false); });
+
+  window.dsToggleFab = toggleFab;
+}
+
+// מסתיר את הפלוס במסכים שאינם המסך הראשי
+function updateFabVisibility() {
+  const fab = document.getElementById('ds-fab');
+  if (!fab) return;
+  const appScreen = document.getElementById('screen-app');
+  const visible = appScreen && !appScreen.classList.contains('hidden') && !state.isHr;
+  fab.style.display = visible ? 'flex' : 'none';
+  if (!visible && fabOpen && window.dsToggleFab) window.dsToggleFab(false);
+}
+
+const _origShowScreen = showScreen;
+showScreen = function (id) {
+  _origShowScreen(id);
+  updateFabVisibility();
+};
+
+// ---------------------------------------------------------------------
+//  סרגל קיצורים — צ'יפים + שמירה בשרת
+// ---------------------------------------------------------------------
+let myShortcutsCache = null;
+
+async function loadShortcutsFromServer() {
+  try {
+    const r = await apiGet('getMyShortcuts', { code: state.code });
+    myShortcutsCache = (r && r.shortcuts) || [];
+  } catch (e) {
+    // נפילה לאחור לאחסון המקומי, כדי שמי שכבר בחר לא יאבד את הבחירה
+    try {
+      myShortcutsCache = JSON.parse(localStorage.getItem('ds102_shortcuts_' + state.code) || '[]');
+    } catch (e2) {
+      myShortcutsCache = [];
+    }
+  }
+  renderShortcutsBar();
+}
+
+async function persistShortcuts(ids) {
+  myShortcutsCache = ids;
+  localStorage.setItem('ds102_shortcuts_' + state.code, JSON.stringify(ids));
+  try {
+    await apiPost('saveMyShortcuts', { code: state.code, shortcuts: ids });
+  } catch (e) {
+    showToast('הקיצור נשמר במכשיר, אך לא בשרת');
+  }
+}
+
+renderShortcutsBar = function () {
+  injectDesignStyles();
+  const bar = document.getElementById('shortcuts-bar');
+  if (!bar) return;
+
+  if (!state.isManager) {
+    bar.classList.add('hidden');
+    return;
+  }
+
+  const ids = myShortcutsCache || [];
+  bar.innerHTML = '';
+
+  ids.forEach(id => {
+    const def = AVAILABLE_SHORTCUTS.find(s => s.id === id);
+    if (!def) return;
+    const btn = document.createElement('button');
+    btn.className = 'sc-chip';
+    btn.type = 'button';
+    btn.innerHTML = '<i class="ti ' + (SC_ICONS[id] || 'ti-star') + '"></i>' +
+      '<span>' + scLabel(def.label) + '</span>';
+    btn.addEventListener('click', () => triggerShortcut(id));
+    btn.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault();
+      if (confirm('להסיר את "' + scLabel(def.label) + '" מהקיצורים?')) {
+        persistShortcuts(ids.filter(x => x !== id)).then(renderShortcutsBar);
+      }
+    });
+    bar.appendChild(btn);
+  });
+
+  const add = document.createElement('button');
+  add.className = 'sc-chip sc-add';
+  add.type = 'button';
+  add.innerHTML = '<i class="ti ti-plus"></i><span>הוסף קיצור</span>';
+  add.addEventListener('click', openShortcutPicker);
+  bar.appendChild(add);
+
+  bar.classList.remove('hidden');
+};
+
+function openShortcutPicker() {
+  const ids = myShortcutsCache || [];
+  const body = mpModal('sc-picker-modal', 'קיצורי דרך');
+
+  const available = AVAILABLE_SHORTCUTS.filter(s => ids.indexOf(s.id) === -1);
+
+  body.innerHTML =
+    '<div style="font-size:13.5px;color:var(--text-muted);margin-bottom:12px">' +
+    'הקיצורים נשמרים בחשבון שלך ויופיעו בכל מכשיר. לחיצה ארוכה על קיצור ' +
+    'קיים מסירה אותו.</div>' +
+    (available.length === 0
+      ? '<div class="empty-state">כל הקיצורים כבר נוספו</div>'
+      : available.map(s =>
+          '<button class="sc-pick" data-id="' + escapeHtml(s.id) + '" ' +
+          'style="width:100%;display:flex;align-items:center;gap:12px;padding:15px;' +
+          'margin-bottom:8px;border:1px solid var(--border,#ddd);border-radius:12px;' +
+          'background:#fff;font-family:inherit;font-size:15px;cursor:pointer;text-align:right">' +
+          '<i class="ti ' + (SC_ICONS[s.id] || 'ti-star') + '" style="font-size:22px;color:#C1272D"></i>' +
+          '<span>' + escapeHtml(scLabel(s.label)) + '</span></button>'
+        ).join('')) +
+    (ids.length > 0
+      ? '<div class="stats-card-title" style="margin:16px 0 8px">הקיצורים שלי</div>' +
+        ids.map(id => {
+          const def = AVAILABLE_SHORTCUTS.find(s => s.id === id);
+          if (!def) return '';
+          return '<div style="display:flex;align-items:center;gap:12px;padding:13px;' +
+            'margin-bottom:8px;border:1px solid var(--border,#ddd);border-radius:12px">' +
+            '<i class="ti ' + (SC_ICONS[id] || 'ti-star') + '" style="font-size:20px;color:#C1272D"></i>' +
+            '<span style="flex:1;font-size:15px">' + escapeHtml(scLabel(def.label)) + '</span>' +
+            '<button class="sc-remove" data-id="' + escapeHtml(id) + '" ' +
+            'style="padding:8px 14px;border:1px solid var(--border,#ddd);border-radius:10px;' +
+            'background:#fff;color:var(--danger,#c62828);font-family:inherit;font-size:13px;' +
+            'cursor:pointer">הסר</button></div>';
+        }).join('')
+      : '');
+
+  body.querySelectorAll('.sc-pick').forEach(b =>
+    b.addEventListener('click', async () => {
+      const next = (myShortcutsCache || []).concat([b.dataset.id]);
+      await persistShortcuts(next);
+      closeMpModal('sc-picker-modal');
+      renderShortcutsBar();
+    }));
+
+  body.querySelectorAll('.sc-remove').forEach(b =>
+    b.addEventListener('click', async () => {
+      const next = (myShortcutsCache || []).filter(x => x !== b.dataset.id);
+      await persistShortcuts(next);
+      closeMpModal('sc-picker-modal');
+      renderShortcutsBar();
+    }));
+}
+
+// ---------------------------------------------------------------------
+//  אתחול
+// ---------------------------------------------------------------------
+injectDesignStyles();
+document.addEventListener('DOMContentLoaded', () => {
+  injectDesignStyles();
+  buildFab();
+});
+buildFab();
 
 tryAutoLogin();
