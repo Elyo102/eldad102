@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v61';
+const APP_VERSION = 'v62';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -234,6 +234,7 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
     // את החודש שלו מיד, והנתונים מתעדכנים ברקע כשהתשובה מגיעה.
     renderMonthFromCache();
     loadBootstrap();
+    refreshUrgentCalls();
   }
 
   flushOfflineQueue();
@@ -255,6 +256,7 @@ function startPersonalAlertsPolling() {
     if (document.hidden) return;
     loadPersonalAlerts();
     refreshMissedPunchUi();
+    refreshUrgentCalls();
   }, 90000);
 
   // רישום פעם אחת בלבד. בלי השמירה הזו כל התחברות מחדש הייתה מוסיפה
@@ -265,6 +267,7 @@ function startPersonalAlertsPolling() {
       if (!document.hidden && state.code) {
         loadPersonalAlerts();
         refreshMissedPunchUi();
+        refreshUrgentCalls();
       }
     });
   }
@@ -2358,7 +2361,8 @@ const AVAILABLE_SHORTCUTS = [
   { id: 'create_missed_punch', label: '⚠️ פתיחת דוח אי החתמה' },
   { id: 'sign_hour_reports', label: '✍️ חתימת דוחות שעות' },
   { id: 'commander_swaps', label: '🔄 החלפות משמרת לאישור' },
-  { id: 'guard_calendar', label: '🛡️ יומן אבטחות אירועים' }
+  { id: 'guard_calendar', label: '🛡️ יומן אבטחות אירועים' },
+  { id: 'urgent_call', label: '🚒🚨 קריאת פתע' }
 ];
 
 function getMyShortcuts() {
@@ -2448,6 +2452,8 @@ function triggerShortcut(id) {
     openCommanderSwapsModal();
   } else if (id === 'guard_calendar') {
     openGuardCalendarModal();
+  } else if (id === 'urgent_call') {
+    openUrgentHistoryModal();
   }
 }
 
@@ -4586,6 +4592,315 @@ async function openMyGuardEventsModal() {
           (e.location ? ' · ' + escapeHtml(e.location) : '') +
           ' · ' + escapeHtml(e.role) + '</div></div></div>'
         ).join('');
+  } catch (err) {
+    body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
+}
+
+
+// =====================================================================
+//  קריאת פתע — תגובה ולוח סטטוס
+// =====================================================================
+//  שני צדדים: הכבאי מאשר הגעה או דוחה עם נימוק, וראש המשמרת רואה
+//  לוח חי של מי מגיע ומי לא.
+
+let urgentPollInterval = null;
+
+// ---------------------------------------------------------------------
+//  הכבאי — כרטיס תגובה
+// ---------------------------------------------------------------------
+
+function urgentBanner() {
+  let el = document.getElementById('urgent-call-banner');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'urgent-call-banner';
+  el.className = 'hidden';
+  el.style.cssText = 'margin:12px 0';
+  const anchor = document.getElementById('personal-alerts-section');
+  if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(el, anchor);
+  else {
+    const app = document.getElementById('screen-app');
+    if (app) app.prepend(el);
+  }
+  return el;
+}
+
+async function refreshUrgentCalls() {
+  if (!state.code) return;
+  const banner = urgentBanner();
+  try {
+    const res = await apiGet('listMyPendingUrgentCalls', { code: state.code });
+    const calls = (res && res.calls) || [];
+
+    if (calls.length === 0) {
+      banner.classList.add('hidden');
+      banner.innerHTML = '';
+      return;
+    }
+
+    banner.classList.remove('hidden');
+    banner.innerHTML = calls.map(c =>
+      '<div class="alert-card urgent-call-card" data-id="' + escapeHtml(c.id) + '" ' +
+      'style="margin-bottom:8px;border:3px solid #C1272D;background:#FFF5F5">' +
+      '<div style="font-weight:800;font-size:17px;color:#C1272D">🚒🚨 קריאת פתע</div>' +
+      '<div style="font-size:12.5px;color:var(--text-muted);margin-top:2px">מאת ' +
+      escapeHtml(c.fromName) + '</div>' +
+      '<div style="font-size:15px;margin-top:8px;font-weight:500">' +
+      escapeHtml(c.message) + '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:12px">' +
+      '<button class="uc-coming" data-id="' + escapeHtml(c.id) + '" ' +
+      'style="flex:1;padding:13px;border:none;border-radius:10px;background:#1D7A5C;' +
+      'color:#fff;font-size:15px;font-weight:700;font-family:inherit;cursor:pointer">' +
+      'קיבלתי, אני בדרך</button>' +
+      '<button class="uc-decline" data-id="' + escapeHtml(c.id) + '" ' +
+      'style="flex:1;padding:13px;border:2px solid #C1272D;border-radius:10px;' +
+      'background:#fff;color:#C1272D;font-size:15px;font-weight:700;' +
+      'font-family:inherit;cursor:pointer">לא יכול להגיע</button>' +
+      '</div></div>'
+    ).join('');
+
+    // סירנה על קריאה חדשה שטרם השמענו עליה בסשן הזה
+    calls.forEach(c => {
+      if (!sirenPlayedAlertIds.has('uc-' + c.id)) {
+        sirenPlayedAlertIds.add('uc-' + c.id);
+        playSirenSound(6000);
+      }
+    });
+  } catch (e) {
+    // כשל בטעינה לא חוסם שום דבר אחר
+  }
+}
+
+document.addEventListener('click', async (e) => {
+  const comingBtn = e.target.closest('.uc-coming');
+  if (comingBtn) {
+    try {
+      const r = await callApi('POST', 'respondToUrgentCall', {
+        code: state.code, callId: comingBtn.dataset.id, status: 'coming', reason: ''
+      });
+      await fadeOutCard(comingBtn.closest('.urgent-call-card'), 'אתה בדרך');
+      showToast(r.message || 'ראש המשמרת עודכן');
+      refreshUrgentCalls();
+    } catch (err) {
+      showToast(err.message || 'שגיאה בשליחת התגובה');
+    }
+    return;
+  }
+
+  const declineBtn = e.target.closest('.uc-decline');
+  if (declineBtn) {
+    const reason = prompt('נימוק — למה אינך יכול להגיע? (חובה)');
+    if (reason === null) return;
+    if (!reason.trim()) { showToast('חובה לציין נימוק כדי לדחות'); return; }
+    try {
+      const r = await callApi('POST', 'respondToUrgentCall', {
+        code: state.code, callId: declineBtn.dataset.id, status: 'declined', reason
+      });
+      await fadeOutCard(declineBtn.closest('.urgent-call-card'), 'התגובה נשלחה');
+      showToast(r.message || 'ראש המשמרת עודכן');
+      refreshUrgentCalls();
+    } catch (err) {
+      showToast(err.message || 'שגיאה בשליחת התגובה');
+    }
+  }
+});
+
+// ---------------------------------------------------------------------
+//  ראש המשמרת — הזנקה ולוח סטטוס
+// ---------------------------------------------------------------------
+
+async function openUrgentLaunchModal() {
+  const body = mpModal('uc-launch-modal', '🚒🚨 הזנקת קריאת פתע');
+  body.innerHTML = '<div class="empty-state">טוען...</div>';
+
+  try {
+    const res = await callApi('GET', 'listSwapCandidates', { code: state.code });
+    const people = res.people || [];
+
+    body.innerHTML =
+      '<label class="form-label" style="display:block;margin-bottom:4px">תוכן ההודעה</label>' +
+      '<textarea id="uc-msg" rows="3" placeholder="לדוגמה: שריפת מבנה ברחוב הערבה, התייצבות מיידית" ' +
+      'style="width:100%;padding:11px;font-size:16px;border:1px solid var(--border,#ccc);' +
+      'border-radius:8px;resize:vertical;margin-bottom:14px"></textarea>' +
+
+      '<button id="uc-launch-team" class="btn btn-primary" ' +
+      'style="width:100%;margin-bottom:10px;background:#C1272D">הזנק את כל המשמרת</button>' +
+
+      '<div style="text-align:center;font-size:13px;color:var(--text-muted);margin:10px 0">— או —</div>' +
+
+      '<div style="font-size:13.5px;margin-bottom:6px">בחירה פרטנית</div>' +
+      '<div style="max-height:220px;overflow-y:auto;border:1px solid var(--border,#ddd);' +
+      'border-radius:8px;padding:8px;margin-bottom:12px">' +
+      people.map(p =>
+        '<label style="display:flex;align-items:center;gap:8px;padding:6px 2px;cursor:pointer">' +
+        '<input type="checkbox" class="uc-target" value="' + escapeHtml(p.code) + '" ' +
+        'style="width:18px;height:18px;cursor:pointer">' +
+        '<span style="font-size:14px">' + escapeHtml(p.name) +
+        (p.team ? ' · ' + escapeHtml(p.team) : '') + '</span></label>'
+      ).join('') + '</div>' +
+
+      '<div id="uc-error" class="hidden" style="color:var(--danger);font-size:13.5px;margin-bottom:8px"></div>' +
+      '<button id="uc-launch-selected" class="tool-btn" ' +
+      'style="width:100%;padding:12px;font-weight:700">הזנק לנבחרים</button>';
+
+    async function launch(scope) {
+      const errBox = document.getElementById('uc-error');
+      errBox.classList.add('hidden');
+      const message = document.getElementById('uc-msg').value.trim();
+
+      if (!message) {
+        errBox.textContent = 'חובה לכתוב תוכן להודעה';
+        errBox.classList.remove('hidden');
+        return;
+      }
+
+      const targetCodes = Array.from(document.querySelectorAll('.uc-target:checked'))
+        .map(cb => cb.value);
+
+      if (scope === 'selected' && targetCodes.length === 0) {
+        errBox.textContent = 'יש לסמן לפחות אדם אחד';
+        errBox.classList.remove('hidden');
+        return;
+      }
+
+      const confirmMsg = scope === 'team'
+        ? 'להזניק קריאת פתע לכל המשמרת?'
+        : 'להזניק קריאת פתע ל-' + targetCodes.length + ' אנשים?';
+      if (!confirm(confirmMsg)) return;
+
+      try {
+        const r = await callApi('POST', 'launchUrgentCall', {
+          code: state.code, targetCodes: targetCodes, message: message, scope: scope
+        });
+        playSirenSound(3000);
+        showToast(r.message || 'הקריאה הוזנקה');
+        closeMpModal('uc-launch-modal');
+        if (r.callId) openUrgentStatusModal(r.callId);
+      } catch (err) {
+        errBox.textContent = err.message || 'שגיאה בהזנקה';
+        errBox.classList.remove('hidden');
+      }
+    }
+
+    document.getElementById('uc-launch-team').addEventListener('click', () => launch('team'));
+    document.getElementById('uc-launch-selected').addEventListener('click', () => launch('selected'));
+  } catch (err) {
+    body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
+}
+
+// לוח הסטטוס החי. מתרענן לבד כל 15 שניות כל עוד הוא פתוח.
+async function openUrgentStatusModal(callId) {
+  const body = mpModal('uc-status-modal', 'סטטוס קריאת פתע');
+  await drawUrgentStatus(callId, body);
+
+  if (urgentPollInterval) clearInterval(urgentPollInterval);
+  urgentPollInterval = setInterval(() => {
+    const modal = document.getElementById('uc-status-modal');
+    if (!modal || modal.classList.contains('hidden')) {
+      clearInterval(urgentPollInterval);
+      urgentPollInterval = null;
+      return;
+    }
+    drawUrgentStatus(callId);
+  }, 15000);
+}
+
+async function drawUrgentStatus(callId, body) {
+  const el = body || document.querySelector('#uc-status-modal .mp-body');
+  if (!el) return;
+
+  try {
+    const r = await apiGet('getUrgentCallStatus', { code: state.code, callId: callId });
+    if (!r || !r.success) {
+      el.innerHTML = '<div class="empty-state">לא נמצאה קריאה</div>';
+      return;
+    }
+
+    function personRow(p, icon, color, showReason) {
+      return '<div class="shift-card" style="align-items:flex-start;' +
+        'border-right:5px solid ' + color + '">' +
+        '<div style="font-size:22px;margin-left:10px">' + icon + '</div>' +
+        '<div class="shift-details"><div class="shift-type">' + escapeHtml(p.name) + '</div>' +
+        (showReason && p.reason
+          ? '<div class="shift-time" style="color:' + color + '">' + escapeHtml(p.reason) + '</div>'
+          : '') +
+        '</div></div>';
+    }
+
+    el.innerHTML =
+      '<div style="background:#FFF5F5;border:2px solid #C1272D;border-radius:10px;' +
+      'padding:12px;margin-bottom:14px">' +
+      '<div style="font-weight:800;font-size:15px;color:#C1272D">' +
+      escapeHtml(r.call.message) + '</div>' +
+      '<div style="font-size:12.5px;color:var(--text-muted);margin-top:4px">' +
+      escapeHtml(r.call.scope) + ' · ' + r.call.targetCount + ' נמענים</div>' +
+      '</div>' +
+
+      '<div style="display:flex;gap:8px;margin-bottom:14px;text-align:center">' +
+      '<div style="flex:1;background:var(--surface-1,#f5f5f5);border-radius:10px;padding:10px">' +
+      '<div style="font-size:26px;font-weight:800;color:#1D7A5C">' + r.comingCount + '</div>' +
+      '<div style="font-size:12px;color:var(--text-muted)">מגיעים</div></div>' +
+      '<div style="flex:1;background:var(--surface-1,#f5f5f5);border-radius:10px;padding:10px">' +
+      '<div style="font-size:26px;font-weight:800;color:#C1272D">' + r.declinedCount + '</div>' +
+      '<div style="font-size:12px;color:var(--text-muted)">לא מגיעים</div></div>' +
+      '<div style="flex:1;background:var(--surface-1,#f5f5f5);border-radius:10px;padding:10px">' +
+      '<div style="font-size:26px;font-weight:800;color:#888">' + r.pendingCount + '</div>' +
+      '<div style="font-size:12px;color:var(--text-muted)">טרם ענו</div></div>' +
+      '</div>' +
+
+      (r.coming.length > 0
+        ? '<div class="stats-card-title" style="margin:6px 0 8px">מגיעים</div>' +
+          r.coming.map(p => personRow(p, '✅', '#1D7A5C', false)).join('')
+        : '') +
+      (r.declined.length > 0
+        ? '<div class="stats-card-title" style="margin:14px 0 8px">לא מגיעים</div>' +
+          r.declined.map(p => personRow(p, '❌', '#C1272D', true)).join('')
+        : '') +
+      (r.pending.length > 0
+        ? '<div class="stats-card-title" style="margin:14px 0 8px">טרם ענו</div>' +
+          r.pending.map(p => personRow(p, '⏳', '#BBB', false)).join('')
+        : '') +
+
+      '<div style="font-size:12px;color:var(--text-muted);text-align:center;margin-top:12px">' +
+      'הלוח מתעדכן אוטומטית כל 15 שניות</div>';
+  } catch (err) {
+    el.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
+}
+
+// רשימת הקריאות שהמזניק פתח
+async function openUrgentHistoryModal() {
+  const body = mpModal('uc-history-modal', 'קריאות פתע');
+  body.innerHTML = '<div class="empty-state">טוען...</div>';
+
+  try {
+    const r = await callApi('GET', 'listMyUrgentCalls', { code: state.code });
+    const calls = r.calls || [];
+
+    let html = '<button id="uc-new" class="btn btn-primary" ' +
+      'style="width:100%;margin-bottom:14px;background:#C1272D">🚒🚨 הזנקת קריאת פתע</button>';
+
+    html += calls.length === 0
+      ? '<div class="empty-state">לא הוזנקו קריאות</div>'
+      : calls.map(c =>
+          '<div class="shift-card uc-hist" data-id="' + escapeHtml(c.id) + '" ' +
+          'style="flex-direction:column;align-items:stretch;cursor:pointer">' +
+          '<div style="font-weight:800;font-size:14px">' + escapeHtml(c.message) + '</div>' +
+          '<div style="font-size:12.5px;color:var(--text-muted);margin-top:3px">' +
+          escapeHtml(c.scope) + ' · ' + c.targetCount + ' נמענים</div>' +
+          '<div style="font-size:14px;margin-top:6px;font-weight:700">' +
+          '<span style="color:#1D7A5C">✅ ' + c.coming + '</span>  ' +
+          '<span style="color:#C1272D">❌ ' + c.declined + '</span>  ' +
+          '<span style="color:#888">⏳ ' + c.pending + '</span></div></div>'
+        ).join('');
+
+    body.innerHTML = html;
+
+    document.getElementById('uc-new').addEventListener('click', openUrgentLaunchModal);
+    body.querySelectorAll('.uc-hist').forEach(c =>
+      c.addEventListener('click', () => openUrgentStatusModal(c.dataset.id)));
   } catch (err) {
     body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
   }
