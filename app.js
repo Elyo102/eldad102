@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v53';
+const APP_VERSION = 'v54';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -3488,5 +3488,94 @@ async function loadBootstrap() {
     // אין רשת - מה שהוצג מהמטמון נשאר על המסך, וזה בדיוק הרצוי
   }
 }
+
+
+// =====================================================================
+//  ניקוי מטמון ידני — פתרון עצמאי לתקיעות אחרי עדכון גרסה
+// =====================================================================
+//  כשעולה גרסה חדשה, דפדפן שנשאר עם Service Worker ישן יכול להחזיר
+//  קבצים ותשובות שמורות ולהיראות "תקוע" או להחזיר 404. במקום להדריך
+//  39 אנשים בטלפון איך מוחקים נתוני אתר - כפתור אחד עושה הכל.
+//
+//  הכפתור בולט בכוונה, אבל האישור מזהיר במפורש אם יש דיווחים
+//  שממתינים לשליחה - ניקוי ימחק אותם, וזה הנזק היחיד האפשרי כאן.
+
+function buildClearCacheButton() {
+  const anchor = document.getElementById('version-indicator');
+  if (!anchor || document.getElementById('clear-cache-btn')) return;
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'margin:14px auto 0;max-width:420px;padding:0 16px';
+
+  const btn = document.createElement('button');
+  btn.id = 'clear-cache-btn';
+  btn.type = 'button';
+  btn.innerHTML = '🔄 האפליקציה תקועה? לחץ כאן לרענון מלא';
+  btn.style.cssText =
+    'width:100%;padding:14px;border-radius:12px;border:2px solid #C1272D;' +
+    'background:#fff;color:#C1272D;font-size:15px;font-weight:700;' +
+    'font-family:inherit;cursor:pointer;line-height:1.4';
+
+  const hint = document.createElement('div');
+  hint.textContent = 'מוחק את הזיכרון המקומי וטוען מחדש את הגרסה העדכנית';
+  hint.style.cssText = 'text-align:center;font-size:12.5px;color:#777;margin-top:6px';
+
+  wrap.appendChild(btn);
+  wrap.appendChild(hint);
+  anchor.parentNode.insertBefore(wrap, anchor);
+
+  btn.addEventListener('click', clearAppCacheAndReload);
+}
+
+async function clearAppCacheAndReload() {
+  // אזהרה על דיווחים שממתינים לשליחה - זה הדבר היחיד שהניקוי יכול
+  // להרוס, ולכן הוא מוצג במפורש ולא נקבר בטקסט כללי.
+  let pending = 0;
+  try {
+    pending = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]').length;
+  } catch (e) { pending = 0; }
+
+  let msg = 'לרענן את האפליקציה מחדש?\n\nהפעולה תמחק את הזיכרון המקומי ' +
+    'ותטען את הגרסה העדכנית. תצטרך להזין את הקוד האישי שוב.';
+  if (pending > 0) {
+    msg = '⚠️ שים לב: יש ' + pending + ' דיווחים שממתינים לשליחה, והם יימחקו!\n\n' +
+      'עדיף להתחבר לאינטרנט ולחכות שיישלחו לפני שמנקים.\n\nלהמשיך בכל זאת?';
+  }
+  if (!confirm(msg)) return;
+
+  const btn = document.getElementById('clear-cache-btn');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = 'מנקה...';
+  }
+
+  // 1. הסרת כל ה-Service Workers הרשומים
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+  } catch (e) { /* ממשיכים לשלבים הבאים */ }
+
+  // 2. מחיקת כל המטמונים
+  try {
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+  } catch (e) { /* ממשיכים */ }
+
+  // 3. ניקוי האחסון המקומי
+  try { localStorage.clear(); } catch (e) {}
+  try { sessionStorage.clear(); } catch (e) {}
+
+  // 4. טעינה מחדש עם פרמטר ייחודי, כדי שגם הדפדפן עצמו לא יגיש
+  //    את ה-HTML מהמטמון שלו
+  const base = location.href.split('?')[0].split('#')[0];
+  location.replace(base + '?fresh=' + Date.now());
+}
+
+document.addEventListener('DOMContentLoaded', buildClearCacheButton);
+buildClearCacheButton();
 
 tryAutoLogin();
