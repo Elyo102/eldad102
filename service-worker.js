@@ -88,7 +88,7 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-const CACHE_NAME = 'ds102-shell-v52';
+const CACHE_NAME = 'ds102-shell-v53';
 const SHELL_FILES = [
   './',
   './index.html',
@@ -121,11 +121,23 @@ self.addEventListener('activate', (event) => {
 // קבצים סטטיים - cache-first עם נפילה חזרה לרשת, ועדכון המטמון ברקע.
 self.addEventListener('fetch', (event) => {
   const url = event.request.url;
-  if (url.includes('script.google.com')) {
+
+  // כל תעבורת ה-API עוקפת את המטמון לחלוטין.
+  // הבדיקה מכסה גם את script.googleusercontent.com - הדומיין שאליו
+  // גוגל מפנה את הבקשה בפועל. קודם הוא לא נכלל, כי המחרוזת
+  // 'script.google.com' אינה חלק מ-'script.googleusercontent.com',
+  // ולכן תשובות API יכלו להיתפס במטמון ולחזור שגויות.
+  if (url.indexOf('script.google') !== -1 ||
+      url.indexOf('googleusercontent.com') !== -1 ||
+      url.indexOf('googleapis.com') !== -1) {
     event.respondWith(fetch(event.request));
     return;
   }
+
   if (event.request.method !== 'GET') return;
+
+  // רק בקשות מאותו מקור נשמרות במטמון. כל דבר חיצוני עובר ישירות.
+  if (new URL(url).origin !== self.location.origin) return;
   event.respondWith(
     caches.match(event.request).then((cached) => {
       const networkFetch = fetch(event.request)
