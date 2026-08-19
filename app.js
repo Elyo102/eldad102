@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v51';
+const APP_VERSION = 'v52';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -209,26 +209,18 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
   // בדיקה מפורשת - רק HR אמיתי (לא מנהל-על, לא ראש משמרת) מנותב ישר
   // למסך הניהול עם היומן. isHr חייב להיות true במפורש (לא רק truthy).
   const isTrulyHr = state.isHr === true && !state.isAdmin;
-  // כל הקריאות יוצאות במקביל ולא בזו אחר זו. קודם כל בקשה חיכתה
-  // לסיום קודמתה, וזמן הכניסה היה סכום כולן. עכשיו הוא זמן הבקשה
-  // האיטית ביותר בלבד - בערך חצי מהזמן.
-  const startupTasks = [];
-
   if (isTrulyHr) {
     // HR נכנסת ישר למסך הניהול - שם היומן והבועות פרוסים ישירות,
     // בלי צורך ללחוץ על אייקון כלשהו קודם.
     showScreen('screen-admin');
-    startupTasks.push(loadAdminUsers(), loadOpenAlerts(), loadCalendarEvents());
+    Promise.allSettled([loadAdminUsers(), loadOpenAlerts(), loadCalendarEvents(), loadPersonalAlerts()]);
   } else {
     showScreen('screen-app');
-    startupTasks.push(refreshMonth());
+    // הצגה מיידית מהמטמון המקומי, לפני שהשרת בכלל ענה. המשתמש רואה
+    // את החודש שלו מיד, והנתונים מתעדכנים ברקע כשהתשובה מגיעה.
+    renderMonthFromCache();
+    loadBootstrap();
   }
-
-  startupTasks.push(loadPersonalAlerts(), refreshMissedPunchUi(), loadMySignature());
-  if (state.isAdmin) startupTasks.push(loadFixProposals());
-
-  // כשל בקריאה אחת לא מפיל את השאר
-  Promise.allSettled(startupTasks);
 
   flushOfflineQueue();
   renderShortcutsBar();
@@ -473,7 +465,7 @@ function renderAdminUserCard(u) {
         ${u.isAdmin ? '' : `<input type="checkbox" class="bulk-select-checkbox" data-code="${escapeHtml(u.code)}" ${bulkSelectedCodes.has(u.code) ? 'checked' : ''} style="width:17px;height:17px;cursor:pointer">`}
         <span style="width:9px;height:9px;border-radius:50%;background:${dotColor};display:inline-block"></span>
         ${escapeHtml(u.name || '')} ${u.isAdmin ? '👑' : ''} ${u.isHr ? '🩺' : (u.isManager ? '🛡️' : '')} ${u.messagingBlocked ? '🚫' : ''}
-        ${u.isAdmin ? '' : SHIFT_TEAM_BADGES.map(t => `
+        ${SHIFT_TEAM_BADGES.map(t => `
           <span class="shift-team-badge" data-code="${escapeHtml(u.code)}" data-team="${t.label}" data-active="${u.shiftTeam === t.label ? '1' : '0'}"
             style="width:20px;height:20px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;cursor:pointer;
               background:${u.shiftTeam === t.label ? t.color : '#fff'};color:${u.shiftTeam === t.label ? '#fff' : t.color};border:1.5px solid ${t.color}">${t.letter}</span>
@@ -973,19 +965,25 @@ async function refreshMonth() {
   const monthKey = monthKeyOf(state.currentMonth);
   $('month-label').textContent = `${MONTH_NAMES[state.currentMonth.getMonth()]} ${state.currentMonth.getFullYear()}`;
 
+  // ציור מיידי מהמטמון המקומי. אם יש נתונים שמורים המסך מתמלא מיד,
+  // והבקשה לשרת רק מעדכנת אותו. מעבר בין חודשים מרגיש מיידי.
+  const hadCache = renderMonthFromCache();
+
   try {
     // בעבר: שתי בקשות נפרדות לשרת (listShifts + getMonthlyTotal). listShifts
     // כבר מחזירה hours לכל דיווח, אז מחשבים את הסכום כאן בצד הלקוח -
     // חוסך בקשה שלמה לשרת בכל טעינת מסך/מעבר חודש.
-    const shifts = await callApi('GET', 'listShifts', { code: state.code, monthKey });
+    // אם כבר הצגנו מהמטמון - הרענון שקט, בלי עיגול טעינה על המסך
+    const shifts = await callApi('GET', 'listShifts', { code: state.code, monthKey }, hadCache);
     state.shifts = Array.isArray(shifts) ? shifts : (shifts.shifts || []);
     state.shifts.sort((a, b) => (a.dateStr || '').localeCompare(b.dateStr || ''));
+    saveMonthToCache(monthKey, state.shifts);
     renderShifts();
     renderStatsBreakdown();
     const total = state.shifts.reduce((sum, s) => sum + (Number(s.hours) || 0), 0);
     $('month-total').textContent = Math.round(total * 100) / 100;
   } catch (err) {
-    showToast(err.message || 'שגיאה בטעינת החודש');
+    if (!hadCache) showToast(err.message || 'שגיאה בטעינת החודש');
   }
 }
 
@@ -2213,7 +2211,20 @@ async function loadPersonalAlerts() {
   try {
     // רענון שקט - התראות נטענות ברקע ולא אמורות לחסום את המסך
     const result = await callApi('GET', 'listMyPersonalAlerts', { code: state.code }, true);
-    const alerts = result.alerts || [];
+    applyPersonalAlerts(result.alerts || []);
+  } catch (err) {
+    // כשל בטעינת התראות אישיות לא אמור להציג שגיאה בולטת - זה לא קריטי
+  }
+}
+
+// הציור עצמו, מופרד מהטעינה - כדי ש-bootstrap יוכל להזין אותו ישירות
+// בלי בקשה נוספת לשרת.
+function applyPersonalAlerts(alerts) {
+  const section = $('personal-alerts-section');
+  const list = $('personal-alerts-list');
+  const adminSection = $('admin-personal-alerts-section');
+  const adminList = $('admin-personal-alerts-list');
+  {
 
     // באדג' חיווי - גם על 📁 (מסמכים) וגם על ⚙ (ניהול, ל-HR/מנהלים)
     const docAlertsCount = alerts.filter(a => (a.title || '').indexOf('📄') === 0).length;
@@ -2263,8 +2274,6 @@ async function loadPersonalAlerts() {
       adminList.appendChild(renderAlertCard(a));
     });
     renderNotificationBubbles(alerts);
-  } catch (err) {
-    // כשל בטעינת התראות אישיות לא אמור להציג שגיאה בולטת - זה לא קריטי
   }
 }
 
@@ -2840,7 +2849,15 @@ async function refreshMissedPunchUi() {
   const banner = mpBanner();
   try {
     const res = await apiGet('listMyMissedPunchReports', { code: state.code });
-    const reports = (res && res.reports) || [];
+    applyMissedPunchReports((res && res.reports) || []);
+  } catch (e) {
+    // כשל בטעינה לא אמור להקפיץ שגיאה בולטת - זה לא חוסם שום דבר אחר
+  }
+}
+
+function applyMissedPunchReports(reports) {
+  const banner = mpBanner();
+  {
     if (reports.length === 0) {
       banner.classList.add('hidden');
       banner.innerHTML = '';
@@ -2864,8 +2881,6 @@ async function refreshMissedPunchUi() {
         '" style="width:auto;padding:7px 14px;margin-top:9px;font-weight:700">מלא את הטופס</button>') +
       '</div>'
     ).join('');
-  } catch (e) {
-    // כשל בטעינה לא אמור להקפיץ שגיאה בולטת - זה לא חוסם שום דבר אחר
   }
 }
 
@@ -3206,7 +3221,17 @@ async function loadFixProposals() {
 
   try {
     const res = await apiGet('listPendingProposals', { code: state.code });
-    const items = (res && res.proposals) || [];
+    applyFixProposals((res && res.proposals) || []);
+  } catch (e) {
+    // לא חוסם שום דבר אחר במסך
+  }
+}
+
+function applyFixProposals(items) {
+  if (!state.isAdmin) return;
+  const el = document.getElementById('fix-proposals-section');
+  if (!el) return;
+  {
     if (items.length === 0) {
       el.classList.add('hidden');
       el.innerHTML = '';
@@ -3233,8 +3258,6 @@ async function loadFixProposals() {
         '" style="width:auto;padding:7px 14px;color:var(--danger)">דחה</button>' +
         '</div></div>'
       ).join('');
-  } catch (e) {
-    // לא חוסם שום דבר אחר במסך
   }
 }
 
@@ -3392,6 +3415,71 @@ function openMySignatureModal() {
     signatureMode = 'store-only';
     openSignatureModal('החתימה שלי');
   });
+}
+
+
+// =====================================================================
+//  כניסה מהירה — בקשה אחת + הצגה מיידית מהמטמון
+// =====================================================================
+//  הצוואר האמיתי אינו זמן הריצה בשרת אלא מספר הבקשות: כל בקשה
+//  ל-Apps Script עולה כחצי שנייה עד שנייה וחצי בתקורה קבועה.
+//  שני שינויים: הכניסה שולחת בקשה אחת במקום חמש, והמסך מצויר מיד
+//  מהמטמון המקומי בלי לחכות בכלל לשרת.
+
+function monthCacheKey(monthKey) {
+  return 'ds102_month_' + state.code + '_' + monthKey;
+}
+
+function saveMonthToCache(monthKey, shifts) {
+  try {
+    localStorage.setItem(monthCacheKey(monthKey), JSON.stringify(shifts || []));
+  } catch (e) { /* אחסון מלא - לא קריטי */ }
+}
+
+function renderMonthFromCache() {
+  const monthKey = monthKeyOf(state.currentMonth);
+  $('month-label').textContent =
+    MONTH_NAMES[state.currentMonth.getMonth()] + ' ' + state.currentMonth.getFullYear();
+  try {
+    const raw = localStorage.getItem(monthCacheKey(monthKey));
+    if (!raw) return false;
+    state.shifts = JSON.parse(raw);
+    renderShifts();
+    renderStatsBreakdown();
+    const total = state.shifts.reduce((sum, s) => sum + (Number(s.hours) || 0), 0);
+    $('month-total').textContent = Math.round(total * 100) / 100;
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+async function loadBootstrap() {
+  const monthKey = monthKeyOf(state.currentMonth);
+  try {
+    const res = await apiGet('bootstrap', { code: state.code, monthKey });
+    if (!res || res.valid === false) return;
+
+    if (Array.isArray(res.shifts)) {
+      state.shifts = res.shifts;
+      state.shifts.sort((a, b) => (a.dateStr || '').localeCompare(b.dateStr || ''));
+      saveMonthToCache(monthKey, state.shifts);
+      renderShifts();
+      renderStatsBreakdown();
+      const total = state.shifts.reduce((sum, s) => sum + (Number(s.hours) || 0), 0);
+      $('month-total').textContent = Math.round(total * 100) / 100;
+    }
+
+    myStoredSignature = res.signature || '';
+    myStoredSignatureAt = res.signatureAt || null;
+    renderSignatureButton();
+
+    if (Array.isArray(res.alerts)) applyPersonalAlerts(res.alerts);
+    if (Array.isArray(res.missedPunch)) applyMissedPunchReports(res.missedPunch);
+    if (Array.isArray(res.proposals)) applyFixProposals(res.proposals);
+  } catch (e) {
+    // אין רשת - מה שהוצג מהמטמון נשאר על המסך, וזה בדיוק הרצוי
+  }
 }
 
 tryAutoLogin();
