@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v52';
+const APP_VERSION = 'v53';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -103,7 +103,14 @@ async function apiGet(action, params = {}) {
   // בפועל עדכן נכון, כי הרענון שאחריהן קיבל תשובה ישנה מהמטמון.
   url.searchParams.set('_t', Date.now());
   const res = await fetch(url.toString(), { method: 'GET', cache: 'no-store' });
-  if (!res.ok) throw new Error('שגיאת שרת (' + res.status + ')');
+  if (!res.ok) {
+    // 404 כמעט תמיד אומר שכתובת ה-API עצמה שגויה או שהפריסה הוחלפה,
+    // ולא שהפעולה נכשלה. הודעה מפורשת חוסכת חיפוש מיותר.
+    if (res.status === 404) {
+      throw new Error('כתובת השרת לא נמצאה (404). ייתכן שנוצרה פריסה חדשה - יש לעדכן את API_URL.');
+    }
+    throw new Error('שגיאת שרת (' + res.status + ')');
+  }
   return res.json();
 }
 
