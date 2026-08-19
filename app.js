@@ -2899,13 +2899,18 @@ function drawMpRows() {
   const wrap = document.getElementById('mp-rows');
   if (!wrap) return;
   wrap.innerHTML = missedPunchActiveRows.map((r, i) => {
-    const done = r.entry && r.exit && String(r.reason || '').trim();
+    // השעות מגיעות כבר מלאות מהדיווח הקיים - מה שחסר הוא ההסבר המנומק
+    const done = String(r.reason || '').trim();
     return '<div class="shift-card mp-row" data-idx="' + i + '" style="cursor:pointer;' +
       'border-right:6px solid ' + (done ? 'var(--success,#2e7d32)' : 'var(--danger,#c62828)') + '">' +
       '<div class="shift-details"><div class="shift-type">' + mpDateLabel(r.date) +
       (done ? ' ✓' : '') + '</div>' +
       '<div class="shift-time">' +
-      (done ? escapeHtml(r.entry) + ' - ' + escapeHtml(r.exit) : 'טרם מולא') + '</div>' +
+      (r.entry || r.exit ? escapeHtml(r.entry || '--') + ' - ' + escapeHtml(r.exit || '--') : 'ללא שעות') +
+      (r.missing ? ' · <b style="color:var(--danger)">' +
+        (r.missing === 'entry' ? 'חסרה כניסה' :
+         r.missing === 'exit' ? 'חסרה יציאה' : 'חסרות כניסה ויציאה') + '</b>' : '') +
+      '</div>' +
       (r.reason ? '<div class="shift-notes">' + escapeHtml(r.reason) + '</div>' : '') +
       '</div></div>';
   }).join('');
@@ -2936,6 +2941,7 @@ function openMpRowEditor(idx) {
   document.getElementById('mp-row-save').addEventListener('click', () => {
     missedPunchActiveRows[idx] = {
       date: r.date,
+      missing: r.missing,
       entry: document.getElementById('mp-row-entry').value,
       exit: document.getElementById('mp-row-exit').value,
       reason: document.getElementById('mp-row-reason').value.trim()
@@ -3010,44 +3016,70 @@ async function openCommanderMissedPunchModal() {
 //  HR - פתיחת דוח אי החתמה לעובד
 // ---------------------------------------------------------------------
 
+// ליסה בוחרת עובד וחודש, ואז מסמנת ביומן את הימים שחסרה בהם החתמה.
+// לחיצה חוזרת על אותו יום מסובבת: כניסה ← יציאה ← שניהם ← ביטול.
+const mpCreateState = { month: new Date(), selected: {} };
+const MP_MISSING_CYCLE = ['entry', 'exit', 'both', null];
+const MP_MISSING_SHORT = { entry: 'כניסה', exit: 'יציאה', both: 'כניסה+יציאה' };
+
 async function openCreateMissedPunchModal() {
   const body = mpModal('mp-create-modal', 'פתיחת דוח אי החתמה');
   body.innerHTML = '<div class="empty-state">טוען רשימת עובדים...</div>';
+  mpCreateState.month = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  mpCreateState.selected = {};
+
   try {
     const res = await callApi('GET', 'adminListUsers', { code: state.code });
     const users = (res.users || []).filter(u => !u.isAdmin);
+
     body.innerHTML =
       '<label class="form-label" style="display:block;margin-bottom:4px">עובד</label>' +
       '<select id="mp-create-user" style="width:100%;padding:11px;font-size:16px;' +
-      'border:1px solid var(--border,#ccc);border-radius:8px;margin-bottom:12px">' +
+      'border:1px solid var(--border,#ccc);border-radius:8px;margin-bottom:14px">' +
       users.map(u => '<option value="' + escapeHtml(u.code) + '">' +
         escapeHtml(u.name) + '</option>').join('') + '</select>' +
-      '<label class="form-label" style="display:block;margin-bottom:4px">חודש</label>' +
-      '<input id="mp-create-month" type="month" value="' + monthKeyOf(new Date()) + '" ' +
-      'style="width:100%;padding:11px;font-size:16px;border:1px solid var(--border,#ccc);' +
-      'border-radius:8px;margin-bottom:12px">' +
-      '<label class="form-label" style="display:block;margin-bottom:4px">' +
-      'תאריכים ללא החתמה</label>' +
-      '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:6px">' +
-      'תאריך אחד בכל שורה, בפורמט 2026-08-03</div>' +
-      '<textarea id="mp-create-dates" rows="5" style="width:100%;padding:11px;font-size:16px;' +
-      'border:1px solid var(--border,#ccc);border-radius:8px;resize:vertical"></textarea>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">' +
+      '<button id="mp-cal-prev" class="tool-btn" style="width:auto;padding:6px 14px">‹</button>' +
+      '<div id="mp-cal-label" style="font-weight:800;font-size:15px"></div>' +
+      '<button id="mp-cal-next" class="tool-btn" style="width:auto;padding:6px 14px">›</button>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;' +
+      'text-align:center;font-size:12px;color:var(--text-muted);margin-bottom:4px">' +
+      HEBREW_DAY_NAMES.map(d => '<div>' + d.slice(0, 1) + '</div>').join('') + '</div>' +
+      '<div id="mp-cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>' +
+      '<div style="font-size:12.5px;color:var(--text-muted);margin-top:8px;line-height:1.6">' +
+      'לחיצה על יום מסמנת חסרה כניסה, שוב — יציאה, שוב — שניהם, שוב — ביטול.</div>' +
+      '<div id="mp-create-summary" style="margin-top:10px;font-size:13.5px"></div>' +
       '<div id="mp-create-error" class="hidden" style="color:var(--danger);' +
       'font-size:13.5px;margin-top:10px"></div>' +
       '<button id="mp-create-submit" class="btn btn-primary" ' +
       'style="width:100%;margin-top:14px">שלח לעובד</button>';
 
+    document.getElementById('mp-cal-prev').addEventListener('click', () => {
+      mpCreateState.month = new Date(mpCreateState.month.getFullYear(),
+        mpCreateState.month.getMonth() - 1, 1);
+      drawMpCalendar();
+    });
+    document.getElementById('mp-cal-next').addEventListener('click', () => {
+      mpCreateState.month = new Date(mpCreateState.month.getFullYear(),
+        mpCreateState.month.getMonth() + 1, 1);
+      drawMpCalendar();
+    });
+
     document.getElementById('mp-create-submit').addEventListener('click', async () => {
       const errBox = document.getElementById('mp-create-error');
       const targetCode = document.getElementById('mp-create-user').value;
-      const monthKey = document.getElementById('mp-create-month').value;
-      const dates = document.getElementById('mp-create-dates').value
-        .split('\n').map(x => x.trim()).filter(Boolean);
+      const dates = Object.keys(mpCreateState.selected)
+        .filter(d => mpCreateState.selected[d])
+        .sort()
+        .map(d => ({ date: d, missing: mpCreateState.selected[d] }));
+
       if (dates.length === 0) {
-        errBox.textContent = 'יש להזין לפחות תאריך אחד';
+        errBox.textContent = 'יש לסמן לפחות יום אחד ביומן';
         errBox.classList.remove('hidden');
         return;
       }
+      const monthKey = dates[0].date.slice(0, 7);
       try {
         const r = await callApi('POST', 'hrCreateMissedPunchReport', {
           hrCode: state.code, targetCode, monthKey, dates
@@ -3059,8 +3091,60 @@ async function openCreateMissedPunchModal() {
         errBox.classList.remove('hidden');
       }
     });
+
+    drawMpCalendar();
   } catch (err) {
     body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
+}
+
+function drawMpCalendar() {
+  const m = mpCreateState.month;
+  const label = document.getElementById('mp-cal-label');
+  if (label) label.textContent = HEBREW_MONTH_NAMES[m.getMonth()] + ' ' + m.getFullYear();
+
+  const grid = document.getElementById('mp-cal-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+
+  const startOffset = new Date(m.getFullYear(), m.getMonth(), 1).getDay();
+  const daysInMonth = new Date(m.getFullYear(), m.getMonth() + 1, 0).getDate();
+  for (let i = 0; i < startOffset; i++) grid.appendChild(document.createElement('div'));
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = m.getFullYear() + '-' +
+      String(m.getMonth() + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+    const missing = mpCreateState.selected[dateStr];
+
+    const cell = document.createElement('button');
+    cell.type = 'button';
+    cell.style.cssText = 'min-height:52px;border-radius:8px;cursor:pointer;padding:3px;' +
+      'font-family:inherit;display:flex;flex-direction:column;align-items:center;' +
+      'justify-content:center;gap:2px;' +
+      (missing
+        ? 'background:var(--danger,#c62828);color:#fff;border:2px solid var(--danger,#c62828)'
+        : 'background:#fff;color:inherit;border:1px solid var(--border,#ddd)');
+    cell.innerHTML = '<span style="font-size:16px;font-weight:700">' + d + '</span>' +
+      (missing ? '<span style="font-size:9px">' + MP_MISSING_SHORT[missing] + '</span>' : '');
+
+    cell.addEventListener('click', () => {
+      const cur = mpCreateState.selected[dateStr] || null;
+      const next = MP_MISSING_CYCLE[(MP_MISSING_CYCLE.indexOf(cur) + 1) % MP_MISSING_CYCLE.length];
+      if (next) mpCreateState.selected[dateStr] = next;
+      else delete mpCreateState.selected[dateStr];
+      drawMpCalendar();
+    });
+
+    grid.appendChild(cell);
+  }
+
+  const summary = document.getElementById('mp-create-summary');
+  if (summary) {
+    const picked = Object.keys(mpCreateState.selected).sort();
+    summary.innerHTML = picked.length === 0
+      ? '<span style="color:var(--text-muted)">לא סומנו ימים</span>'
+      : '<b>נבחרו ' + picked.length + ':</b> ' + picked.map(d =>
+          mpDateLabel(d) + ' (' + MP_MISSING_SHORT[mpCreateState.selected[d]] + ')').join(' · ');
   }
 }
 
