@@ -88,7 +88,7 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-const CACHE_NAME = 'ds102-shell-v69';
+const CACHE_NAME = 'ds102-shell-v70';
 const SHELL_FILES = [
   './',
   './index.html',
