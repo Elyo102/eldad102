@@ -240,7 +240,6 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
   flushOfflineQueue();
   loadShortcutsFromServer();
   startPersonalAlertsPolling();
-  updateFabVisibility();
 }
 
 // רענון אוטומטי כל 90 שניות, אבל רק כשהמסך באמת פעיל. אם האפליקציה
@@ -3551,6 +3550,9 @@ function renderSignatureButton() {
       tools2.appendChild(guardBtn);
     }
   }
+
+  // הכפתורים האלה נוצרו הרגע - צריך להחיל עליהם אייקונים
+  if (typeof applyButtonIcons === 'function') applyButtonIcons();
 }
 
 function openMySignatureModal() {
@@ -4997,51 +4999,67 @@ function injectDesignStyles() {
 .sc-chip.sc-add { border-style: dashed; color: #888; }
 .sc-chip.sc-add i { color: #888; }
 
-/* ── כפתור הפלוס והתפריט הרדיאלי ── */
-#ds-fab {
-  position: fixed;
-  bottom: 22px;
-  right: 18px;
-  width: 66px;
-  height: 66px;
+.sc-wrap { position: relative; display: inline-flex; }
+.sc-del {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
   background: #C1272D;
   color: #fff;
-  border: none;
-  font-size: 32px;
+  border: 2px solid #fff;
   display: flex;
   align-items: center;
   justify-content: center;
+  font-size: 12px;
   cursor: pointer;
-  z-index: 1200;
-  transition: transform .25s ease;
+  padding: 0;
+  line-height: 1;
 }
-#ds-fab.open { transform: rotate(45deg); }
 
-.ds-radial {
-  position: fixed;
-  width: 62px;
-  height: 62px;
-  border-radius: 50%;
-  background: #fff;
-  border: 2.5px solid #C1272D;
-  color: #C1272D;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  cursor: pointer;
-  z-index: 1199;
-  opacity: 0;
-  transform: scale(.4);
-  transition: opacity .22s ease, transform .22s cubic-bezier(.34,1.56,.64,1);
-  pointer-events: none;
-  font-family: inherit;
+/* ── סרגל הכלים התחתון: שתי שורות קבועות במקום גלילה אופקית ── */
+/* גלילה אופקית מסתירה כפתורים מאחורי הקצה, והמשתמש לא יודע שהם שם. */
+/* רשת של 4 עמודות מציגה את הכל בבת אחת, בלי שבירת מילים באמצע. */
+.bottom-tools {
+  display: grid !important;
+  grid-template-columns: repeat(4, 1fr) !important;
+  gap: 8px !important;
+  overflow-x: visible !important;
+  padding: 12px !important;
 }
-.ds-radial.show { opacity: 1; transform: scale(1); pointer-events: auto; }
-.ds-radial i { font-size: 23px; }
-.ds-radial span { font-size: 8.5px; font-weight: 700; line-height: 1; }
+.bottom-tools .tool-btn {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 5px !important;
+  min-height: 74px !important;
+  width: auto !important;
+  padding: 10px 4px !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  line-height: 1.25 !important;
+  text-align: center !important;
+  border-radius: 14px !important;
+  white-space: normal !important;
+  word-break: keep-all !important;
+}
+.bottom-tools .tool-btn i {
+  font-size: 25px !important;
+  color: #C1272D;
+  line-height: 1;
+}
+
+/* ── כותרת עליונה: אייקונים גדולים יותר ונשימה ביניהם ── */
+.app-header .tool-btn, header .tool-btn {
+  min-height: 42px !important;
+  min-width: 42px !important;
+  font-size: 19px !important;
+  padding: 6px !important;
+  border-radius: 11px !important;
+}
 `;
   document.head.appendChild(st);
 }
@@ -5068,87 +5086,6 @@ function scLabel(raw) {
 }
 
 // ---------------------------------------------------------------------
-//  התפריט הרדיאלי
-// ---------------------------------------------------------------------
-const FAB_ACTIONS = [
-  { id: 'new_shift', icon: 'ti-clock-plus', label: 'דיווח', run: () => openShiftModal(null, null) },
-  { id: 'swap', icon: 'ti-arrows-exchange', label: 'החלפה', run: () => openMySwapsModal() },
-  { id: 'docs', icon: 'ti-folder', label: 'מסמכים', run: () => { showScreen('screen-documents'); loadMyDocuments(); } },
-  { id: 'guard', icon: 'ti-shield-half', label: 'אבטחות', run: () => openMyGuardEventsModal() },
-  { id: 'sign', icon: 'ti-signature', label: 'חתימה', run: () => openMySignatureModal() }
-];
-
-let fabOpen = false;
-
-function buildFab() {
-  injectDesignStyles();
-  if (document.getElementById('ds-fab')) return;
-
-  const fab = document.createElement('button');
-  fab.id = 'ds-fab';
-  fab.type = 'button';
-  fab.setAttribute('aria-label', 'תפריט פעולות');
-  fab.innerHTML = '<i class="ti ti-plus"></i>';
-  document.body.appendChild(fab);
-
-  // רבע מעגל מהכפתור כלפי מעלה ושמאלה - האזור שהאגודל מגיע אליו
-  // בלי לשנות אחיזה. רדיוס 118 מספיק כדי שהאייקונים לא ייגעו זה בזה.
-  const R = 118;
-  const nodes = FAB_ACTIONS.map((a, k) => {
-    const el = document.createElement('button');
-    el.type = 'button';
-    el.className = 'ds-radial';
-    el.innerHTML = '<i class="ti ' + a.icon + '"></i><span>' + a.label + '</span>';
-    el.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      toggleFab(false);
-      try { a.run(); } catch (e) { showToast('הפעולה לא זמינה'); }
-    });
-    document.body.appendChild(el);
-    return { el: el, angle: 90 + k * (90 / (FAB_ACTIONS.length - 1)) };
-  });
-
-  function toggleFab(force) {
-    fabOpen = typeof force === 'boolean' ? force : !fabOpen;
-    fab.classList.toggle('open', fabOpen);
-
-    nodes.forEach((n, k) => {
-      if (fabOpen) {
-        const rad = n.angle * Math.PI / 180;
-        // הכפתור יושב 18 מימין ו-22 מלמטה, מרכזו ב-51/55
-        n.el.style.right = (51 + R * Math.cos(rad) - 31) + 'px';
-        n.el.style.bottom = (55 + R * Math.sin(rad) - 31) + 'px';
-        n.el.style.left = 'auto';
-        setTimeout(() => n.el.classList.add('show'), k * 45);
-      } else {
-        n.el.classList.remove('show');
-      }
-    });
-  }
-
-  fab.addEventListener('click', (ev) => { ev.stopPropagation(); toggleFab(); });
-  document.addEventListener('click', () => { if (fabOpen) toggleFab(false); });
-
-  window.dsToggleFab = toggleFab;
-}
-
-// מסתיר את הפלוס במסכים שאינם המסך הראשי
-function updateFabVisibility() {
-  const fab = document.getElementById('ds-fab');
-  if (!fab) return;
-  const appScreen = document.getElementById('screen-app');
-  const visible = appScreen && !appScreen.classList.contains('hidden') && !state.isHr;
-  fab.style.display = visible ? 'flex' : 'none';
-  if (!visible && fabOpen && window.dsToggleFab) window.dsToggleFab(false);
-}
-
-const _origShowScreen = showScreen;
-showScreen = function (id) {
-  _origShowScreen(id);
-  updateFabVisibility();
-};
-
-// ---------------------------------------------------------------------
 //  סרגל קיצורים — צ'יפים + שמירה בשרת
 // ---------------------------------------------------------------------
 let myShortcutsCache = null;
@@ -5169,6 +5106,15 @@ async function loadShortcutsFromServer() {
 }
 
 async function persistShortcuts(ids) {
+  // הסרת כפילויות. בלי זה לחיצה חוזרת על אותו קיצור הוסיפה אותו שוב,
+  // וכך נוצרו ארבעה עותקים של יומן האבטחות בסרגל.
+  const seen = {};
+  ids = (ids || []).filter(function (id) {
+    if (seen[id]) return false;
+    seen[id] = true;
+    return true;
+  });
+
   myShortcutsCache = ids;
   localStorage.setItem('ds102_shortcuts_' + state.code, JSON.stringify(ids));
   try {
@@ -5194,19 +5140,32 @@ renderShortcutsBar = function () {
   ids.forEach(id => {
     const def = AVAILABLE_SHORTCUTS.find(s => s.id === id);
     if (!def) return;
+    // עטיפה עם כפתור מחיקה גלוי. לחיצה ארוכה לא מספיקה - היא לא
+    // מגלה את עצמה, ומשתמש שהוסיף קיצור בטעות נשאר תקוע איתו.
+    const wrap = document.createElement('span');
+    wrap.className = 'sc-wrap';
+
     const btn = document.createElement('button');
     btn.className = 'sc-chip';
     btn.type = 'button';
     btn.innerHTML = '<i class="ti ' + (SC_ICONS[id] || 'ti-star') + '"></i>' +
       '<span>' + scLabel(def.label) + '</span>';
     btn.addEventListener('click', () => triggerShortcut(id));
-    btn.addEventListener('contextmenu', (ev) => {
-      ev.preventDefault();
-      if (confirm('להסיר את "' + scLabel(def.label) + '" מהקיצורים?')) {
-        persistShortcuts(ids.filter(x => x !== id)).then(renderShortcutsBar);
-      }
+
+    const del = document.createElement('button');
+    del.className = 'sc-del';
+    del.type = 'button';
+    del.setAttribute('aria-label', 'הסר את ' + scLabel(def.label));
+    del.innerHTML = '<i class="ti ti-x"></i>';
+    del.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      await persistShortcuts((myShortcutsCache || []).filter(x => x !== id));
+      renderShortcutsBar();
     });
-    bar.appendChild(btn);
+
+    wrap.appendChild(btn);
+    wrap.appendChild(del);
+    bar.appendChild(wrap);
   });
 
   const add = document.createElement('button');
@@ -5278,8 +5237,63 @@ function openShortcutPicker() {
 injectDesignStyles();
 document.addEventListener('DOMContentLoaded', () => {
   injectDesignStyles();
-  buildFab();
 });
-buildFab();
+
+
+
+// ---------------------------------------------------------------------
+//  החלפת אמוג'י באייקונים וקטוריים בסרגל התחתון ובכותרת
+// ---------------------------------------------------------------------
+//  הכפתורים האלה קיימים ב-index.html עם אמוג'י בטקסט. במקום לערוך
+//  את ה-HTML, מזהים אותם לפי המזהה ומחליפים את התוכן. אמוג'י נראה
+//  שונה בכל מכשיר ומטושטש בחלקם; אייקון וקטורי חד ואחיד בכל מסך.
+
+const BTN_ICONS = {
+  'check-issues-btn':   { icon: 'ti-search',          label: 'בדוק תקינות' },
+  'recalc-btn':         { icon: 'ti-refresh',         label: 'חשב מחדש' },
+  'clear-month-btn':    { icon: 'ti-eraser',          label: 'נקה חודש' },
+  'my-signature-btn':   { icon: 'ti-signature',       label: 'חתימה' },
+  'my-swaps-btn':       { icon: 'ti-arrows-exchange', label: 'החלפות' },
+  'my-guard-btn':       { icon: 'ti-shield-half',     label: 'אבטחות' },
+  'export-sheet-btn':   { icon: 'ti-file-export',     label: 'ייצוא' },
+  'send-admin-message-btn': { icon: 'ti-send',        label: 'הודעה' },
+  'enable-push-btn':    { icon: 'ti-bell',            label: 'התראות' },
+  'documents-btn':      { icon: 'ti-folder' },
+  'procedures-btn':     { icon: 'ti-clipboard-text' },
+  'admin-btn':          { icon: 'ti-settings' },
+  'team-btn':           { icon: 'ti-users' },
+  'shift-team-btn':     { icon: 'ti-users-group' },
+  'calendar-btn':       { icon: 'ti-calendar' },
+  'logout-btn':         { icon: 'ti-logout',          label: 'יציאה' }
+};
+
+function applyButtonIcons() {
+  Object.keys(BTN_ICONS).forEach(function (id) {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.iconized === '1') return;
+
+    const def = BTN_ICONS[id];
+    const badge = el.querySelector('.badge, [id$="-badge"]');
+
+    el.innerHTML = '<i class="ti ' + def.icon + '"></i>' +
+      (def.label ? '<span>' + def.label + '</span>' : '');
+
+    // הבאדג' של ההתראות חייב לשרוד את ההחלפה
+    if (badge) el.appendChild(badge);
+
+    el.dataset.iconized = '1';
+  });
+}
+
+// הכפתורים נבנים בזמנים שונים - חלקם ב-HTML, חלקם דינמית אחרי כניסה.
+// לכן מפעילים גם בטעינה, גם אחרי כניסה, וגם בכל מעבר מסך.
+document.addEventListener('DOMContentLoaded', applyButtonIcons);
+applyButtonIcons();
+
+const _origShowScreenIcons = showScreen;
+showScreen = function (id) {
+  _origShowScreenIcons(id);
+  setTimeout(applyButtonIcons, 30);
+};
 
 tryAutoLogin();
