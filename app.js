@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v54';
+const APP_VERSION = 'v55';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -1889,6 +1889,17 @@ $('signature-save-btn').addEventListener('click', async () => {
       showToast('החתימה נשמרה');
       return;
     }
+    if (signatureMode === 'hoursign') {
+      $('signature-modal').classList.add('hidden');
+      signatureMode = 'personal';
+      const r = await callApi('POST', 'commanderSignHourReportsTracked', {
+        code: state.code, targetCodes: Array.from(hourSignSelected),
+        signatureBase64: base64, monthKey: hourSignMonthKey
+      });
+      showToast(r.message || 'נחתם בהצלחה');
+      openHourSignModal();
+      return;
+    }
     if (signatureMode === 'missedpunch-employee') {
       res = await callApi('POST', 'submitMissedPunchReport', {
         code: state.code, reportId: missedPunchActiveId, signatureBase64: base64
@@ -2319,7 +2330,8 @@ const AVAILABLE_SHORTCUTS = [
   { id: 'upload_procedure', label: '📋 העלאת נוהל/מסמך' },
   { id: 'confirmable_broadcast', label: '✅ קרא וחתום' },
   { id: 'missed_punch', label: '📝 דוחות אי החתמה' },
-  { id: 'create_missed_punch', label: '⚠️ פתיחת דוח אי החתמה' }
+  { id: 'create_missed_punch', label: '⚠️ פתיחת דוח אי החתמה' },
+  { id: 'sign_hour_reports', label: '✍️ חתימת דוחות שעות' }
 ];
 
 function getMyShortcuts() {
@@ -2403,6 +2415,8 @@ function triggerShortcut(id) {
     openCommanderMissedPunchModal();
   } else if (id === 'create_missed_punch') {
     openCreateMissedPunchModal();
+  } else if (id === 'sign_hour_reports') {
+    openHourSignModal();
   }
 }
 
@@ -3043,10 +3057,13 @@ async function openCommanderMissedPunchModal() {
       b.addEventListener('click', () => {
         missedPunchActiveId = b.dataset.id;
         signWithStoredOrDraw('missedpunch-commander', 'אישור טופס אי החתמה', async () => {
-          const r = await callApi('POST', 'commanderApproveMissedPunch', {
+          await callApi('POST', 'commanderApproveMissedPunch', {
             code: state.code, reportId: missedPunchActiveId, signatureBase64: ''
           });
-          showToast(r.message || 'הטופס אושר ונשלח למשאבי אנוש');
+          // הכרטיס לא נעלם מיד: קודם מוצג אישור ברור, ורק אחריו
+          // הוא מתפוגג. ככה ראש המשמרת יודע בוודאות שזה נשלח.
+          const cardEl = b.closest('.shift-card');
+          await fadeOutCard(cardEl, 'נשלח אל ליסה בהצלחה');
           openCommanderMissedPunchModal();
         });
       });
@@ -3577,5 +3594,160 @@ async function clearAppCacheAndReload() {
 
 document.addEventListener('DOMContentLoaded', buildClearCacheButton);
 buildClearCacheButton();
+
+
+// =====================================================================
+//  התפוגגות כרטיס אחרי פעולה מוצלחת
+// =====================================================================
+//  הכרטיס לא נעלם ברגע שהפעולה הצליחה. קודם מוצג עליו אישור ברור,
+//  ורק אחריו הוא מתפוגג. בלי זה הכרטיס פשוט "קופץ" מהמסך ואי אפשר
+//  לדעת אם הפעולה הצליחה או שמשהו השתבש.
+
+function ensureFadeStyles() {
+  if (document.getElementById('fade-card-styles')) return;
+  const st = document.createElement('style');
+  st.id = 'fade-card-styles';
+  st.textContent =
+    '@keyframes cardCloudOut{' +
+    '0%{opacity:1;transform:scale(1) translateY(0);filter:blur(0)}' +
+    '55%{opacity:.85;transform:scale(1.02) translateY(-4px);filter:blur(0)}' +
+    '100%{opacity:0;transform:scale(1.12) translateY(-22px);filter:blur(7px)}}' +
+    '.card-cloud-out{animation:cardCloudOut 1.1s ease-out forwards;pointer-events:none}' +
+    '@keyframes successPop{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:scale(1)}}' +
+    '.card-success-msg{animation:successPop .25s ease-out}';
+  document.head.appendChild(st);
+}
+
+function fadeOutCard(cardEl, message) {
+  ensureFadeStyles();
+  if (!cardEl) {
+    showToast(message);
+    return Promise.resolve();
+  }
+
+  cardEl.innerHTML =
+    '<div class="card-success-msg" style="width:100%;text-align:center;padding:18px 10px">' +
+    '<div style="font-size:34px;line-height:1">✅</div>' +
+    '<div style="font-weight:800;font-size:16px;color:#1D7A5C;margin-top:6px">' +
+    escapeHtml(message) + '</div></div>';
+
+  return new Promise(resolve => {
+    setTimeout(() => {
+      cardEl.classList.add('card-cloud-out');
+      setTimeout(() => {
+        if (cardEl.parentNode) cardEl.parentNode.removeChild(cardEl);
+        resolve();
+      }, 1100);
+    }, 900);
+  });
+}
+
+// =====================================================================
+//  חתימת ראש משמרת על דוחות שעות
+// =====================================================================
+
+const hourSignSelected = new Set();
+let hourSignMonthKey = null;
+
+async function openHourSignModal() {
+  const body = mpModal('hour-sign-modal', 'חתימת דוחות שעות');
+  body.innerHTML = '<div class="empty-state">טוען...</div>';
+  hourSignSelected.clear();
+
+  try {
+    const res = await callApi('GET', 'commanderListPendingHourReports', { code: state.code });
+    hourSignMonthKey = res.monthKey;
+
+    const pending = res.pending || [];
+    const signed = res.signed || [];
+    const notConfirmed = res.notConfirmed || [];
+
+    let html =
+      '<div style="font-size:13.5px;color:var(--text-muted);margin-bottom:12px">' +
+      'חודש ' + escapeHtml(res.monthKey) + ' · ' + escapeHtml(res.teamLabel || '') + '<br>' +
+      'רק דוחות שנחתמו על ידך ייכללו במייל המרוכז שיוצא לליסה ב-1 לחודש.</div>';
+
+    if (pending.length === 0) {
+      html += '<div class="empty-state">אין דוחות הממתינים לחתימתך</div>';
+    } else {
+      html += '<div class="stats-card-title" style="margin:6px 0 8px">' +
+        'ממתינים לחתימתך (' + pending.length + ')</div>';
+      html += '<button id="hs-select-all" class="tool-btn" ' +
+        'style="width:100%;margin-bottom:8px">בחר את כולם</button>';
+      html += pending.map(u =>
+        '<div class="shift-card" style="align-items:center">' +
+        '<input type="checkbox" class="hs-check" data-code="' + escapeHtml(u.code) + '" ' +
+        'style="width:19px;height:19px;cursor:pointer;margin-left:10px">' +
+        '<div class="shift-details"><div class="shift-type">' + escapeHtml(u.name) + '</div>' +
+        '<div class="shift-time">' + u.hours + ' שעות · אישר בעצמו</div></div></div>'
+      ).join('');
+      html += '<button id="hs-sign-btn" class="btn btn-primary" ' +
+        'style="width:100%;margin-top:12px">חתום על הנבחרים</button>';
+    }
+
+    if (signed.length > 0) {
+      html += '<div class="stats-card-title" style="margin:16px 0 8px">' +
+        'כבר נחתמו (' + signed.length + ')</div>';
+      html += signed.map(u =>
+        '<div class="shift-card"><div class="shift-details">' +
+        '<div class="shift-type">✅ ' + escapeHtml(u.name) + '</div>' +
+        '<div class="shift-time">' + u.hours + ' שעות · חתם: ' + escapeHtml(u.signedBy || '') +
+        '</div></div></div>'
+      ).join('');
+    }
+
+    if (notConfirmed.length > 0) {
+      html += '<div class="stats-card-title" style="margin:16px 0 8px">' +
+        'טרם אישרו בעצמם (' + notConfirmed.length + ')</div>' +
+        '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:6px">' +
+        'לא ניתן לחתום עליהם עד שהכבאי יאשר שהדוח שלו תקין.</div>';
+      html += notConfirmed.map(u =>
+        '<div class="shift-card"><div class="shift-details">' +
+        '<div class="shift-type" style="color:var(--text-muted)">⏳ ' + escapeHtml(u.name) + '</div>' +
+        '<div class="shift-time">' + u.hours + ' שעות</div></div></div>'
+      ).join('');
+    }
+
+    body.innerHTML = html;
+
+    const selectAll = document.getElementById('hs-select-all');
+    if (selectAll) {
+      selectAll.addEventListener('click', () => {
+        body.querySelectorAll('.hs-check').forEach(cb => {
+          cb.checked = true;
+          hourSignSelected.add(cb.dataset.code);
+        });
+      });
+    }
+
+    body.querySelectorAll('.hs-check').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) hourSignSelected.add(cb.dataset.code);
+        else hourSignSelected.delete(cb.dataset.code);
+      });
+    });
+
+    const signBtn = document.getElementById('hs-sign-btn');
+    if (signBtn) {
+      signBtn.addEventListener('click', () => {
+        if (hourSignSelected.size === 0) {
+          showToast('לא נבחר אף עובד');
+          return;
+        }
+        signWithStoredOrDraw('hoursign', 'חתימה על ' + hourSignSelected.size + ' דוחות שעות',
+          async () => {
+            const r = await callApi('POST', 'commanderSignHourReportsTracked', {
+              code: state.code, targetCodes: Array.from(hourSignSelected),
+              signatureBase64: '', monthKey: hourSignMonthKey
+            });
+            showToast(r.message || 'נחתם בהצלחה');
+            openHourSignModal();
+          });
+      });
+    }
+  } catch (err) {
+    body.innerHTML = '<div class="empty-state">' + escapeHtml(err.message || 'שגיאה') + '</div>';
+  }
+}
 
 tryAutoLogin();
