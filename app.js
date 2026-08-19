@@ -41,7 +41,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v69';
+const APP_VERSION = 'v70';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -5555,10 +5555,21 @@ function buildDrawer() {
   });
 }
 
+// אמוג'י גיבוי לכל פעולה. אם ספריית האייקונים לא נטענה, האריח היה
+// נשאר עם עיגול ריק. עכשיו תמיד יש סימן ויזואלי.
+const TILE_FALLBACK = {
+  new_shift: '🕐', swap: '🔄', vacation: '🏖', docs: '📁',
+  myguard: '🛡', mysig: '✍', urgent: '🚨', cmdswap: '🔄',
+  cmdmp: '📄', cmdsign: '✍', cmdguard: '📅', cmdmsg: '📢'
+};
+
 function tileHtml(a) {
-  const cls = 'ds-tile' + (a.hot ? ' hot' : (a.primary ? ' primary' : ''));
+  const cls = 'ds-tile' + (a.hot ? ' hot' : '');
+  const fallback = TILE_FALLBACK[a.id] || '•';
   return '<button type="button" class="' + cls + '" data-act="' + a.id + '">' +
-    '<i class="ti ' + a.icon + '"></i><span>' + a.label + '</span></button>';
+    '<span class="ds-ico"><i class="ti ' + a.icon + '"></i>' +
+    '<span class="ds-fallback" style="display:none">' + fallback + '</span></span>' +
+    '<span>' + a.label + '</span></button>';
 }
 
 function renderDrawer() {
@@ -5823,9 +5834,9 @@ function checkIconFont() {
     const st = document.createElement('style');
     st.textContent =
       '.no-icon-font .ti { display: none !important; }' +
-      '.no-icon-font .ds-tile { min-height: 62px; }' +
-      '.no-icon-font .ds-tile span { font-size: 12.5px; }' +
-      '.no-icon-font .sc-chip { padding: 12px 18px; }';
+      '.no-icon-font .ds-fallback { display: block !important; font-size: 22px; }' +
+      '.no-icon-font .sc-chip { padding: 13px 18px; }' +
+      '.no-icon-font .bottom-tools .tool-btn { font-size: 13.5px !important; }';
     document.head.appendChild(st);
   }
   return loaded;
@@ -5989,5 +6000,56 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest('.admin-perms-btn');
   if (b) openPermsPicker(b.dataset.code, b.dataset.name);
 });
+
+
+
+// =====================================================================
+//  ייצוא הדוח החדש
+// =====================================================================
+//  כפתור הייצוא כבר לא מפיק גיליון גוגל אלא את אותו PDF שליסה מקבלת
+//  ב-1 לחודש. ה-PDF מגיע מהשרת כ-base64 ויורד ישירות למכשיר - בלי
+//  קובץ שנשאר ב-Drive ובלי שיתוף שצריך לנהל.
+
+async function exportMonthPdf() {
+  const monthKey = monthKeyOf(state.currentMonth);
+  try {
+    const r = await callApi('GET', 'exportMyMonthPdf', { code: state.code, monthKey });
+    if (!r || !r.base64) { showToast('לא הצלחתי להפיק את הדוח'); return; }
+
+    // המרת base64 ל-Blob והורדה. עובד גם ב-PWA מותקנת.
+    const bin = atob(r.base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], { type: 'application/pdf' });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = r.fileName || 'דוח נוכחות.pdf';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+
+    showToast('הדוח הופק: ' + r.hours + ' שעות');
+  } catch (err) {
+    showToast(err.message || 'שגיאה בהפקת הדוח');
+  }
+}
+
+// החלפת ההתנהגות של כפתור הייצוא הקיים, בלי לגעת ב-index.html
+(function hijackExportBtn() {
+  function bind() {
+    const old = document.getElementById('export-sheet-btn');
+    if (!old || old.dataset.pdfized === '1') return;
+    const fresh = old.cloneNode(true);
+    fresh.dataset.pdfized = '1';
+    fresh.title = 'הפקת דוח נוכחות PDF';
+    old.parentNode.replaceChild(fresh, old);
+    fresh.addEventListener('click', exportMonthPdf);
+  }
+  document.addEventListener('DOMContentLoaded', bind);
+  bind();
+})();
 
 tryAutoLogin();
