@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v50';
+const APP_VERSION = 'v51';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -209,24 +209,30 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
   // בדיקה מפורשת - רק HR אמיתי (לא מנהל-על, לא ראש משמרת) מנותב ישר
   // למסך הניהול עם היומן. isHr חייב להיות true במפורש (לא רק truthy).
   const isTrulyHr = state.isHr === true && !state.isAdmin;
+  // כל הקריאות יוצאות במקביל ולא בזו אחר זו. קודם כל בקשה חיכתה
+  // לסיום קודמתה, וזמן הכניסה היה סכום כולן. עכשיו הוא זמן הבקשה
+  // האיטית ביותר בלבד - בערך חצי מהזמן.
+  const startupTasks = [];
+
   if (isTrulyHr) {
     // HR נכנסת ישר למסך הניהול - שם היומן והבועות פרוסים ישירות,
     // בלי צורך ללחוץ על אייקון כלשהו קודם.
     showScreen('screen-admin');
-    loadAdminUsers();
-    loadOpenAlerts();
-    loadCalendarEvents();
+    startupTasks.push(loadAdminUsers(), loadOpenAlerts(), loadCalendarEvents());
   } else {
     showScreen('screen-app');
-    refreshMonth();
+    startupTasks.push(refreshMonth());
   }
-  loadPersonalAlerts();
+
+  startupTasks.push(loadPersonalAlerts(), refreshMissedPunchUi(), loadMySignature());
+  if (state.isAdmin) startupTasks.push(loadFixProposals());
+
+  // כשל בקריאה אחת לא מפיל את השאר
+  Promise.allSettled(startupTasks);
+
   flushOfflineQueue();
   renderShortcutsBar();
   startPersonalAlertsPolling();
-  refreshMissedPunchUi();
-  loadMySignature();
-  if (state.isAdmin) loadFixProposals();
 }
 
 // רענון אוטומטי כל 90 שניות, אבל רק כשהמסך באמת פעיל. אם האפליקציה
