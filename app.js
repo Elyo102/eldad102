@@ -6,7 +6,7 @@
 // גרסה גלויה למסך הכניסה - מתעדכנת יחד עם CACHE_NAME ב-service-worker.js
 // בכל פעם שמעדכנים אחד, מעדכנים גם את השני. זה נותן דרך מהירה לוודא
 // בוודאות שהגרסה הנכונה נטענה בדפדפן, בלי צורך לחפש בתוך קבצים.
-const APP_VERSION = 'v49';
+const APP_VERSION = 'v50';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -119,8 +119,11 @@ async function apiPost(action, params = {}) {
   return res.json();
 }
 
-async function callApi(method, action, params) {
-  setLoading(true);
+// silent=true מבצע את הקריאה בלי להדליק את שכבת הטעינה. זה מה
+// שמשמש את רענוני הרקע - בלי זה העיגול המסתובב קופץ על כל המסך
+// בכל מחזור רענון, גם כשהמשתמש לא ביקש שום דבר.
+async function callApi(method, action, params, silent) {
+  if (!silent) setLoading(true);
   try {
     const result = method === 'GET' ? await apiGet(action, params) : await apiPost(action, params);
     if (result && result.success === false) {
@@ -128,7 +131,7 @@ async function callApi(method, action, params) {
     }
     return result;
   } finally {
-    setLoading(false);
+    if (!silent) setLoading(false);
   }
 }
 
@@ -2202,7 +2205,8 @@ async function loadPersonalAlerts() {
   const adminSection = $('admin-personal-alerts-section');
   const adminList = $('admin-personal-alerts-list');
   try {
-    const result = await callApi('GET', 'listMyPersonalAlerts', { code: state.code });
+    // רענון שקט - התראות נטענות ברקע ולא אמורות לחסום את המסך
+    const result = await callApi('GET', 'listMyPersonalAlerts', { code: state.code }, true);
     const alerts = result.alerts || [];
 
     // באדג' חיווי - גם על 📁 (מסמכים) וגם על ⚙ (ניהול, ל-HR/מנהלים)
