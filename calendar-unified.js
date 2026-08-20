@@ -442,6 +442,41 @@
     return m.length > 0 ? m[0] : null;
   }
 
+  // ── מטמון לסשן ──
+  // מסך השיבוץ שלח שתי בקשות בכל פתיחה: רשימת הכבאים ודוח העומס.
+  // רשימת הכבאים לא משתנה תוך כדי עבודה, ודוח העומס משתנה רק כשמישהו
+  // משבץ - ואז אנחנו מנקים אותו בעצמנו. כל בקשה ל-Apps Script עולה
+  // חצי שנייה עד שנייה וחצי בתקורה קבועה, ולכן זו החיסכון האמיתי:
+  // פחות בקשות, לא קוד מהיר יותר.
+  var peopleCache = null;
+  var loadCache = null;
+
+  function invalidateAssignCaches() {
+    loadCache = null; // רשימת הכבאים נשארת, רק המספרים התיישנו
+  }
+
+  function fetchPeople() {
+    if (peopleCache) return Promise.resolve(peopleCache);
+    return callApi('GET', 'listSwapCandidates', { code: state.code }, true)
+      .then(function (r) {
+        peopleCache = r.people || [];
+        return peopleCache;
+      })
+      .catch(function () { return []; });
+  }
+
+  function fetchLoad() {
+    if (loadCache) return Promise.resolve(loadCache);
+    return callApi('GET', 'guardLoadReport', { code: state.code }, true)
+      .then(function (r) {
+        var map = {};
+        (r.rows || []).forEach(function (x) { map[x.code] = x.count; });
+        loadCache = map;
+        return map;
+      })
+      .catch(function () { return {}; });
+  }
+
   function openAssignToGuard(ev) {
     var body = mpModal('uni-assign-modal', 'שיבוץ לאבטחה — ' + ev.title);
     body.innerHTML = '<div class="empty-state">טוען רשימת כבאים...</div>';
@@ -449,21 +484,7 @@
     var mirror = findGuardMirror(ev);
     var preselected = (mirror && mirror.peopleCodes) || [];
 
-    Promise.all([
-      callApi('GET', 'listSwapCandidates', { code: state.code }, true)
-        .then(function (r) { return r.people || []; })
-        .catch(function () { return []; }),
-
-      // חלוקת העומס מוצגת לצד כל שם, כדי שהשיבוץ ייעשה לפי נתון ולא
-      // לפי זיכרון. אם היא לא זמינה, הרשימה עדיין עובדת.
-      callApi('GET', 'guardLoadReport', { code: state.code }, true)
-        .then(function (r) {
-          var map = {};
-          (r.rows || []).forEach(function (x) { map[x.code] = x.count; });
-          return map;
-        })
-        .catch(function () { return {}; })
-    ]).then(function (parts) {
+    Promise.all([fetchPeople(), fetchLoad()]).then(function (parts) {
       var people = parts[0];
       var load = parts[1];
 
@@ -572,6 +593,7 @@
           : callApi('POST', 'createGuardEvent', { code: state.code, params: params });
 
         call.then(function (r) {
+            invalidateAssignCaches();
             showToast(r.message || (codes.length + ' משובצים · יופיע להם תחת "האבטחות שלי"'));
             closeMpModal('uni-assign-modal');
             return loadUnified();
@@ -841,7 +863,7 @@
   // בקובץ בן 4,000 שורות רק כדי לדעת איזו גרסה נטענה בפועל במכשיר.
   function stampVersion() {
     var el = document.getElementById('version-indicator');
-    if (el) el.textContent = 'גרסה v77 · לוח שנה מאוחד';
+    if (el) el.textContent = 'גרסה v78 · לוח שנה מאוחד';
   }
 
   document.addEventListener('DOMContentLoaded', function () {
