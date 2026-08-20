@@ -816,7 +816,17 @@
     if (id === 'screen-calendar' && state.code && !isLisa()) loadUnified();
   };
 
-  document.addEventListener('DOMContentLoaded', function () { tidyUp(); rebindNav(); });
+  // מחוון הגרסה מתעדכן מכאן ולא מ-app.js, כדי שלא יידרש שינוי ידני
+  // בקובץ בן 4,000 שורות רק כדי לדעת איזו גרסה נטענה בפועל במכשיר.
+  function stampVersion() {
+    var el = document.getElementById('version-indicator');
+    if (el) el.textContent = 'גרסה v74 · לוח שנה מאוחד';
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    tidyUp(); rebindNav(); stampVersion();
+  });
   tidyUp();
   rebindNav();
+  stampVersion();
 })();
