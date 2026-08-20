@@ -841,7 +841,7 @@
   // בקובץ בן 4,000 שורות רק כדי לדעת איזו גרסה נטענה בפועל במכשיר.
   function stampVersion() {
     var el = document.getElementById('version-indicator');
-    if (el) el.textContent = 'גרסה v75 · לוח שנה מאוחד';
+    if (el) el.textContent = 'גרסה v76 · לוח שנה מאוחד';
   }
 
   document.addEventListener('DOMContentLoaded', function () {
