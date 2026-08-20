@@ -561,17 +561,18 @@
           notes: ev.notes || ''
         };
 
-        // מוחקים את הבבואה הישנה רק אחרי שהחדשה נשמרה בהצלחה, כדי
-        // שכשל באמצע לא ישאיר את האירוע בלי אף משובץ.
-        callApi('POST', 'createGuardEvent', { code: state.code, params: params })
-          .then(function () {
-            if (!mirror) return null;
-            return callApi('POST', 'deleteGuardEvent', {
-              code: state.code, eventId: mirror.id
-            }).catch(function () { return null; });
-          })
-          .then(function () {
-            showToast(codes.length + ' משובצים · יופיע להם תחת "האבטחות שלי"');
+        // ── עדכון במקום מחיקה ויצירה ──
+        // הגרסה הקודמת מחקה את האירוע ואז יצרה אותו מחדש. אם היצירה
+        // נכשלה באמצע, האירוע נעלם לתמיד. עכשיו זה עדכון שורה במקומה,
+        // ואין רגע שבו האירוע לא קיים.
+        const call = mirror
+          ? callApi('POST', 'updateGuardEvent', {
+              code: state.code, eventId: mirror.id, params: params
+            })
+          : callApi('POST', 'createGuardEvent', { code: state.code, params: params });
+
+        call.then(function (r) {
+            showToast(r.message || (codes.length + ' משובצים · יופיע להם תחת "האבטחות שלי"'));
             closeMpModal('uni-assign-modal');
             return loadUnified();
           })
@@ -744,6 +745,26 @@
   };
   drawGuardCalendar = function () { return loadUnified(); };
 
+  // ── נטרול פונקציית השיבוץ ההרסנית ──
+  // openAssignModal ב-app.js מוחקת את האירוע ואז יוצרת אותו מחדש.
+  // היא עדיין נגישה מכמה מסלולים ישנים, ולכן היא מופנית כאן למודאל
+  // הבטוח. בלי זה, מסלול אחד שנשכח היה מספיק כדי לאבד אירוע.
+  if (typeof openAssignModal === 'function') {
+    openAssignModal = function (eventId) {
+      var ev = uni.events.filter(function (x) { return x.id === eventId; })[0];
+      if (ev) {
+        openAssignToGuard(ev);
+      } else {
+        showScreen('screen-calendar');
+        loadUnified().then(function () {
+          var found = uni.events.filter(function (x) { return x.id === eventId; })[0];
+          if (found) openAssignToGuard(found);
+          else showToast('האירוע לא נמצא בחודש המוצג');
+        });
+      }
+    };
+  }
+
   // ניווט החודשים: המאזינים ב-app.js משנים את calendarState, שכבר לא
   // בשימוש. מחליפים את הכפתורים בעותק נקי ומחברים מחדש.
   function rebindNav() {
@@ -820,7 +841,7 @@
   // בקובץ בן 4,000 שורות רק כדי לדעת איזו גרסה נטענה בפועל במכשיר.
   function stampVersion() {
     var el = document.getElementById('version-indicator');
-    if (el) el.textContent = 'גרסה v74 · לוח שנה מאוחד';
+    if (el) el.textContent = 'גרסה v75 · לוח שנה מאוחד';
   }
 
   document.addEventListener('DOMContentLoaded', function () {
