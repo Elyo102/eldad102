@@ -1366,16 +1366,46 @@ $('delete-shift-btn').addEventListener('click', async () => {
 // ---------------------------------------------------------------------
 // כלים תחתונים: בדיקת בעיות / תיקון / חישוב מחדש / ניקוי חודש
 // ---------------------------------------------------------------------
+// הבדיקה והמילוי עברו לפעולות שמקבלות חודש (checkMonthForIssues /
+// fixMonthFromSchedule ב-Fill.gs). הגרסאות הישנות לא קיבלו monthKey
+// בכלל ולכן תמיד רצו על החודש הפעיל, לא על החודש שרואים במסך.
+//
+// הנפילה חזרה לפעולה הישנה נועדה לשלב הפריסה בלבד: כך אפשר לעדכן
+// את app.js לפני שה-Api.gs החדש נפרס, בלי שהכפתור יישבר בינתיים.
+async function callWithFallback_(method, newAction, oldAction, params) {
+  try {
+    return await callApi(method, newAction, params);
+  } catch (err) {
+    if (String(err && err.message || '').indexOf('פעולה לא מוכרת') === -1) throw err;
+    const legacy = { code: params.code };
+    return await callApi(method, oldAction, legacy);
+  }
+}
+
 $('check-issues-btn').addEventListener('click', async () => {
   try {
-    const result = await callApi('GET', 'checkMyDataForIssues', { code: state.code });
+    const monthKey = monthKeyOf(state.currentMonth);
+    const result = await callWithFallback_('GET', 'checkMonthForIssues', 'checkMyDataForIssues',
+      { code: state.code, monthKey });
+
     const body = $('issues-body');
+    const c = result.counts;
+    // שורת ההקשר חשובה: בלעדיה אי אפשר לדעת אם "אין בעיות" משמעו
+    // שהכל תקין או שפשוט לא שובצת באף יום בחודש הזה.
+    const head = c
+      ? `<div class="muted" style="margin-bottom:8px">נסרקו ${c.daysInMonth} ימים ב-${escapeHtml(result.monthKey || monthKey)} · משובץ בסידור: ${c.scheduled}` +
+        (c.protectedDays ? ` · מוגנים (***): ${c.protectedDays}` : '') + '</div>'
+      : '';
+
     if (!result.issues || result.issues.length === 0) {
-      body.innerHTML = '<div class="ok-msg">לא נמצאו בעיות בנתונים ✓</div>';
+      body.innerHTML = head + '<div class="ok-msg">לא נמצאו בעיות בנתונים ✓</div>';
       $('fix-issues-btn').classList.add('hidden');
     } else {
-      body.innerHTML = '<ul>' + result.issues.map(i => `<li>${escapeHtml(i)}</li>`).join('') + '</ul>';
-      $('fix-issues-btn').classList.remove('hidden');
+      body.innerHTML = head + '<ul>' + result.issues.map(i => `<li>${escapeHtml(i)}</li>`).join('') + '</ul>';
+      // canFix מגיע מהשרת: חודש סגור, או חודש בלי ימים חסרים, לא ניתן
+      // למילוי. undefined = השרת הישן, ואז מתנהגים כמו קודם.
+      if (result.canFix === false) $('fix-issues-btn').classList.add('hidden');
+      else $('fix-issues-btn').classList.remove('hidden');
     }
     $('issues-modal').classList.remove('hidden');
   } catch (err) {
@@ -1386,7 +1416,9 @@ $('close-issues-modal').addEventListener('click', () => $('issues-modal').classL
 
 $('fix-issues-btn').addEventListener('click', async () => {
   try {
-    const result = await callApi('POST', 'fixMyDataIssues', { code: state.code });
+    const monthKey = monthKeyOf(state.currentMonth);
+    const result = await callWithFallback_('POST', 'fixMonthFromSchedule', 'fixMyDataIssues',
+      { code: state.code, monthKey });
     showToast(result.message || 'תוקן בהצלחה');
     $('issues-modal').classList.add('hidden');
     await refreshMonth();
@@ -1409,7 +1441,9 @@ $('recalc-btn').addEventListener('click', async () => {
 $('clear-month-btn').addEventListener('click', async () => {
   if (!confirm('לנקות את כל הדיווחים של החודש המוצג? פעולה זו לא ניתנת לביטול (דיווחים מוגנים ב-*** לא יימחקו).')) return;
   try {
-    const result = await callApi('POST', 'clearMonth', { code: state.code });
+    // חייבים לשלוח את החודש המוצג. בלעדיו השרת ניקה תמיד את החודש
+    // הפעיל, וצפייה באוגוסט ב-1 בספטמבר ניקתה את ספטמבר.
+    const result = await callApi('POST', 'clearMonth', { code: state.code, monthKey: monthKeyOf(state.currentMonth) });
     showToast(result.message || 'החודש נוקה');
     await refreshMonth();
   } catch (err) {
@@ -1988,7 +2022,10 @@ $('signature-save-btn').addEventListener('click', async () => {
     }
     if (signatureMode === 'commander') {
       res = await callApi('POST', 'commanderSignHourReports', {
-        commanderCode: state.code, targetCodes: Array.from(shiftTeamSelectedCodes), signatureBase64: base64
+        commanderCode: state.code, targetCodes: Array.from(shiftTeamSelectedCodes), signatureBase64: base64,
+        // בלי זה השרת חתם על החודש הנוכחי. חתימה על דוחות אוגוסט
+        // ב-1 בספטמבר נרשמה על 2026-09, ואוגוסט נשאר בלי חתימה.
+        monthKey: monthKeyOf(state.currentMonth)
       });
       shiftTeamSelectedCodes.clear();
       updateShiftTeamBulkBar();
