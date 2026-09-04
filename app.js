@@ -96,6 +96,10 @@ const KNOWN_STATIONS = ['ראשית', 'שחמון', 'תמנע', 'יטבתה'];
 const state = {
   code: null,
   name: null,
+  // מצב "צופה כ": self מחזיק את הזהות האמיתית שלך, viewAs את העובד
+  // שאתה מסתכל עליו. שניהם null בשימוש רגיל.
+  self: null,
+  viewAs: null,
   currentMonth: null, // Date בתחילת החודש המוצג
   shifts: [],
   editingDateStr: null
@@ -504,6 +508,7 @@ function renderAdminUserCard(u) {
   card.className = 'shift-card';
   card.style.flexWrap = 'wrap';
   card.style.alignItems = 'flex-start';
+  card.title = 'לחיצה כפולה על הכרטיס — פתיחת דוח השעות של העובד';
 
   const rel = relativeLoginLabel(u.lastLoginAt);
   const dotColor = rel.dot === 'green' ? '#2e7d32' : (rel.dot === 'amber' ? '#d38b00' : '#9e9e9e');
@@ -511,7 +516,7 @@ function renderAdminUserCard(u) {
   const hoursLabel = (u.monthlyHours === null || u.monthlyHours === undefined) ? '—' : u.monthlyHours;
 
   card.innerHTML = `
-    <div class="admin-card-folder-icon" data-code="${escapeHtml(u.code || '')}" data-name="${escapeHtml(u.name || '')}" title="לחיצה כפולה לפתיחת המסמכים" style="font-size:38px;cursor:pointer;line-height:1;margin-left:6px;user-select:none">📁</div>
+    <div class="admin-card-folder-icon" data-code="${escapeHtml(u.code || '')}" data-name="${escapeHtml(u.name || '')}" title="לחיצה כפולה — מסמכים" style="font-size:38px;cursor:pointer;line-height:1;margin-left:6px;user-select:none">📁</div>
     <div style="flex:1;min-width:200px">
       <div style="display:flex;align-items:center;gap:6px;font-weight:600;font-size:15px;flex-wrap:wrap">
         ${u.isAdmin ? '' : `<input type="checkbox" class="bulk-select-checkbox" data-code="${escapeHtml(u.code)}" ${bulkSelectedCodes.has(u.code) ? 'checked' : ''} style="width:17px;height:17px;cursor:pointer">`}
@@ -593,9 +598,126 @@ document.querySelectorAll('.bulk-team-btn').forEach(btn => {
 });
 
 $('admin-users-list').addEventListener('dblclick', (e) => {
+  // התיקייה 📁 נשארת כמו שהייתה — לחיצה כפולה עליה פותחת מסמכים.
   const folderIcon = e.target.closest('.admin-card-folder-icon');
-  if (folderIcon) openUserDocsModal(folderIcon.dataset.code, folderIcon.dataset.name);
+  if (folderIcon) { openUserDocsModal(folderIcon.dataset.code, folderIcon.dataset.name); return; }
+
+  // לחיצה כפולה על הכרטיס עצמו פותחת את דוח השעות של אותו עובד.
+  // בכוונה לא על התיקייה — כדי לא לקחת ממך את הקיצור למסמכים.
+  const card = e.target.closest('.shift-card');
+  if (!card) return;
+  const holder = card.querySelector('.admin-card-folder-icon');
+  if (!holder) return;
+  if (e.target.closest('button, input, select, a')) return; // לא נכנסים מלחיצה על כפתור
+  enterViewAs(holder.dataset.code, holder.dataset.name);
 });
+
+
+// =====================================================================
+//  מצב צפייה בעובד ("צופה כ")
+// =====================================================================
+//  איך זה עובד: כל קריאה לשרת נושאת code, והשרת גוזר ממנו את המשתמש.
+//  לכן מספיק להחליף זמנית את state.code לקוד של העובד — וכל המסכים
+//  הקיימים (חודש, עריכה, ייצוא) עובדים כמו שהם, בלי שינוי בשרת.
+//
+//  שתי נקודות שחשוב שיהיו נכונות:
+//   1. **לא קוראים ל-saveSession** במצב הזה. אחרת ההתחברות שלך
+//      ב-localStorage הייתה נדרסת בזו של העובד, ורענון דף היה
+//      מכניס אותך כמותו. היציאה היא תמיד חזרה לזהות ששמורה בזיכרון.
+//   2. עריכה מסומנת. כל שמירה שאתה או ליסה עושים בשם עובד מקבלת
+//      הערה "[עודכן ע\"י ...]", כדי שגם העובד וגם הדוח לליסה יראו
+//      מי שינה. בלי זה אין דרך לדעת שהשעות לא הוזנו על ידו.
+// =====================================================================
+
+function viewAsBanner_() {
+  let bar = $('view-as-bar');
+  if (bar) return bar;
+  bar = document.createElement('div');
+  bar.id = 'view-as-bar';
+  bar.className = 'hidden';
+  bar.setAttribute('style',
+    'position:sticky;top:0;z-index:9999;display:flex;align-items:center;justify-content:space-between;' +
+    'gap:10px;padding:10px 14px;background:#8B1E1E;color:#fff;font-weight:700;' +
+    'box-shadow:0 2px 8px rgba(0,0,0,.25)');
+  bar.innerHTML =
+    '<span id="view-as-text" style="flex:1;min-width:0"></span>' +
+    '<button id="view-as-exit" type="button" ' +
+    'style="background:#fff;color:#8B1E1E;border:0;border-radius:8px;padding:8px 14px;' +
+    'font-weight:700;cursor:pointer;white-space:nowrap">← חזרה לחשבון שלי</button>';
+  document.body.insertBefore(bar, document.body.firstChild);
+  bar.querySelector('#view-as-exit').addEventListener('click', exitViewAs);
+  return bar;
+}
+
+function enterViewAs(code, name) {
+  if (!code) return;
+  // רק מנהל-על ומשאבי אנוש. ראש משמרת רגיל לא נכנס לדוחות של אחרים.
+  if (!state.isAdmin && !state.isHr) { showToast('אין לך הרשאה לצפות בדוחות של עובדים אחרים'); return; }
+  if (String(code) === String(state.viewAs ? state.viewAs.code : state.code)) return;
+
+  // שומרים את הזהות האמיתית פעם אחת בלבד, כדי ש"צופה כ" בתוך
+  // "צופה כ" לא יאבד את הדרך חזרה אליך.
+  if (!state.self) {
+    state.self = {
+      code: state.code, name: state.name, isAdmin: state.isAdmin,
+      isManager: state.isManager, isHr: state.isHr, shiftTeam: state.shiftTeam
+    };
+  }
+
+  state.viewAs = { code: String(code), name: name || '' };
+  state.code = String(code);
+  state.name = name || '';
+  // בזמן הצפייה אתה לא מנהל — כדי שלא תפתח מסך ניהול בתוך זהות
+  // של עובד ותסתבך בין שתי הזהויות.
+  state.isAdmin = false; state.isManager = false; state.isHr = false; state.shiftTeam = '';
+
+  $('user-name').textContent = name || '';
+  $('admin-btn').classList.add('hidden');
+  $('team-btn').classList.add('hidden');
+  $('shift-team-btn').classList.add('hidden');
+  $('calendar-btn').classList.add('hidden');
+  $('add-shift-btn').classList.remove('hidden');
+  document.querySelector('.bottom-tools').classList.remove('hidden');
+  $('month-section-hr-hidden').classList.remove('hidden');
+
+  const bar = viewAsBanner_();
+  $('view-as-text').textContent = '🔍 צופה כ: ' + (name || code) +
+    '  ·  כל עריכה תסומן בשמך (' + (state.self.name || '') + ')';
+  bar.classList.remove('hidden');
+
+  const now = new Date();
+  state.currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  showScreen('screen-app');
+  refreshMonth().catch(() => showToast('לא הצלחתי לטעון את החודש'));
+}
+
+function exitViewAs() {
+  if (!state.self) return;
+  const me = state.self;
+  state.self = null;
+  state.viewAs = null;
+
+  state.code = me.code; state.name = me.name;
+  state.isAdmin = me.isAdmin; state.isManager = me.isManager;
+  state.isHr = me.isHr; state.shiftTeam = me.shiftTeam;
+
+  $('user-name').textContent = me.name || 'שלום';
+  $('admin-btn').classList.toggle('hidden', !state.isManager);
+  $('team-btn').classList.toggle('hidden', !state.isManager);
+  $('shift-team-btn').classList.toggle('hidden', !state.shiftTeam);
+  $('calendar-btn').classList.toggle('hidden', !state.isManager);
+  $('add-shift-btn').classList.toggle('hidden', state.isHr);
+  document.querySelector('.bottom-tools').classList.toggle('hidden', state.isHr);
+  $('month-section-hr-hidden').classList.toggle('hidden', state.isHr);
+
+  const bar = $('view-as-bar');
+  if (bar) bar.classList.add('hidden');
+
+  const now = new Date();
+  state.currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  showScreen('screen-admin');
+  loadAdminUsers().catch(() => {});
+}
 
 $('admin-users-list').addEventListener('click', async (e) => {
   const toggleBtn = e.target.closest('.admin-toggle-btn');
@@ -1312,11 +1434,20 @@ $('shift-form').addEventListener('submit', async (e) => {
     return;
   }
 
+  // עריכה בשם עובד אחר מסומנת בהערה. בלי זה אין שום דרך לדעת
+  // שהשעות לא הוזנו על ידו — לא לעובד עצמו ולא בדוח שיוצא לליסה.
+  // מוסיפים רק אם עוד לא מסומן, כדי שעריכה חוזרת לא תשרשר סימונים.
+  const editedBy = (state.viewAs && state.self && state.self.name)
+    ? '[עודכן ע"י ' + state.self.name + ']' : '';
+  const notesToSave = (editedBy && String(notes || '').indexOf(editedBy) === -1)
+    ? ((notes ? String(notes).trim() + ' ' : '') + editedBy)
+    : notes;
+
   try {
     // תמיד saveManualShift - זו הדרך היחידה שמבטיחה סימון ***
     // ומגינה על הדיווח מפני תיקון אוטומטי של המערכת.
     const params = {
-      code: state.code, dateStr, startTime, endTime, notes, dayType, workplace,
+      code: state.code, dateStr, startTime, endTime, notes: notesToSave, dayType, workplace,
       entry2, exit2, breakType
     };
     const result = await callApi('POST', 'saveManualShift', params);
@@ -1328,7 +1459,7 @@ $('shift-form').addEventListener('submit', async (e) => {
     // מקומי במקום לאבד את הדיווח, ומנסים לסנכרן אוטומטית כשהחיבור חוזר.
     if (isNetworkError(err)) {
       queueOfflineAction('saveManualShift', {
-        code: state.code, dateStr, startTime, endTime, notes, dayType, workplace,
+        code: state.code, dateStr, startTime, endTime, notes: notesToSave, dayType, workplace,
         entry2, exit2, breakType
       });
       showToast('אין חיבור כרגע - הדיווח נשמר ויישלח אוטומטית כשהחיבור יחזור');
