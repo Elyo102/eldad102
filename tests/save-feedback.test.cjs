@@ -1,0 +1,10 @@
+const fs=require('fs'),vm=require('vm'),test=require('node:test'),assert=require('node:assert/strict');
+const source=fs.readFileSync(__dirname+'/../app.js','utf8');
+const start=source.indexOf('const recentHoursSaves = new Map();'),end=source.indexOf('let monthLoadSequence = 0;',start);
+function fixture(){const message={textContent:''},box={hidden:true,querySelector:()=>message};const c={Date,Map,JSON,state:{code:'a',currentMonth:new Date(2026,8,1)},monthKeyOf:()=> '2026-09',$:()=>box,document:{querySelectorAll:()=>[],createElement:()=>({})}};vm.createContext(c);vm.runInContext(source.slice(start,end),c);return{c,box,message};}
+const entry={id:'operation',params:{code:'a',dateStr:'2026-09-08'}};
+test('failed or uncertain save never displays success',()=>{const f=fixture();f.c.acknowledgeHoursSave(entry,null);f.c.acknowledgeHoursSave(entry,{success:false});assert.equal(f.box.hidden,true);});
+test('server acknowledgement immediately displays dated success',()=>{const f=fixture();f.c.acknowledgeHoursSave(entry,{success:true});assert.equal(f.box.hidden,false);assert.match(f.message.textContent,/08\.09\.2026/);assert.match(f.message.textContent,/נקלט בהצלחה/);});
+test('success from another account is not shown in current account',()=>{const f=fixture();f.c.acknowledgeHoursSave({...entry,params:{...entry.params,code:'b'}},{success:true});assert.equal(f.box.hidden,true);});
+test('new edit removes prior success indication',()=>{const f=fixture();f.c.acknowledgeHoursSave(entry,{success:true});f.c.clearHoursSaveFeedback('2026-09-08');assert.equal(f.box.hidden,true);});
+test('cached row cannot be marked as refreshed after save',()=>{const f=fixture();f.c.acknowledgeHoursSave(entry,{success:true});const badge=[],classes=[];const card={dataset:{},classList:{add:c=>classes.push(c)},querySelector:()=>({appendChild:e=>badge.push(e)})};f.c.decorateHoursSavedCard(card,{dateStr:'2026-09-08'},false);assert.equal(badge.length,0);f.c.decorateHoursSavedCard(card,{dateStr:'2026-09-08'},true);assert.equal(badge.length,1);assert.equal(badge[0].textContent,'✓ השינוי נשמר');assert.equal(classes[0],'shift-save-confirmed');});

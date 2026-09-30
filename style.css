@@ -616,3 +616,9 @@ textarea.text-input { resize: vertical; }
   #screen-app .header-actions .icon-btn { min-width:44px; min-height:44px; }
   #month-sync-status, #saved-drafts { font-size:14px; }
 }
+
+/* Visible server acknowledgement, independent of a delayed month refresh. */
+#hours-save-feedback { position:sticky; top:8px; z-index:940; margin-bottom:12px; padding:14px; border:2px solid #237a42; border-radius:12px; background:#e8f7ed; color:#155a2c; font-weight:700; line-height:1.5; box-shadow:0 2px 8px #0001; }
+#hours-save-feedback[hidden] { display:none; }
+#shifts-list .shift-card.shift-save-confirmed { border:2px solid #237a42 !important; background:#f0fbf3 !important; }
+.shift-save-badge { color:#155a2c; font-size:14px; font-weight:700; margin-top:6px; }

@@ -41,7 +41,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v83';
+const APP_VERSION = 'v84';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -1193,6 +1193,7 @@ let shiftFormSubmitting = false;
 let draftSession = 0;
 let draftWriteFailed = false;
 function setMonthSync(phase, detail) {
+  renderHoursSaveFeedback();
   if (monthSync.code !== state.code || monthSync.month !== monthKeyOf(state.currentMonth)) monthSync = { revision: null, dayRevisions: {} };
   monthSync = { ...monthSync, code: state.code, month: monthKeyOf(state.currentMonth), phase };
   const box = $('month-sync-status');
@@ -1257,8 +1258,53 @@ async function updateReportSafetyUi() {
   } catch (e) { box.hidden = false; box.textContent = e.message; }
 }
 
+// A green receipt is shown only after the server acknowledges this operation.
+const recentHoursSaves = new Map();
+function hoursSaveKey(code, dateStr) { return JSON.stringify([code, dateStr]); }
+function renderHoursSaveFeedback() {
+  const box = $('hours-save-feedback');
+  if (!box) return;
+  const month = state.currentMonth ? monthKeyOf(state.currentMonth) : '';
+  const matches = [...recentHoursSaves.values()].filter(e => e.code === state.code && e.dateStr.startsWith(month));
+  const last = matches.sort((a,b) => b.savedAt - a.savedAt)[0];
+  box.hidden = !last;
+  if (last) {
+    const date = last.dateStr.split('-').reverse().join('.');
+    const time = new Date(last.savedAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+    box.querySelector('[data-save-message]').textContent = '✓ השינוי בדיווח ל־' + date + ' נקלט בהצלחה בשרת בשעה ' + time;
+  }
+}
+function acknowledgeHoursSave(entry, result) {
+  if (!result || result.success !== true) return;
+  recentHoursSaves.set(hoursSaveKey(entry.params.code, entry.params.dateStr), {
+    code: entry.params.code, dateStr: entry.params.dateStr, savedAt: Date.now(), operationId: entry.id
+  });
+  renderHoursSaveFeedback();
+}
+function clearHoursSaveFeedback(dateStr) {
+  if (recentHoursSaves.delete(hoursSaveKey(state.code, dateStr))) {
+    renderHoursSaveFeedback();
+    // Remove the old success indication as soon as a new edit starts.
+    document.querySelectorAll('#shifts-list .shift-save-confirmed').forEach(card => {
+      if (card.dataset.savedDate === dateStr) {
+        card.classList.remove('shift-save-confirmed');
+        card.querySelector('.shift-save-badge')?.remove();
+      }
+    });
+  }
+}
+function decorateHoursSavedCard(card, shift, verified) {
+  if (!verified || !recentHoursSaves.has(hoursSaveKey(state.code, shift.dateStr))) return;
+  card.classList.add('shift-save-confirmed');
+  card.dataset.savedDate = shift.dateStr;
+  const badge = document.createElement('div');
+  badge.className = 'shift-save-badge';
+  badge.textContent = '✓ השינוי נשמר';
+  card.querySelector('.shift-details').appendChild(badge);
+}
+
 let monthLoadSequence = 0;
-async function refreshMonth() {
+async function refreshMonth(silent = false) {
   const requestId = ++monthLoadSequence;
   const code = state.code;
   const monthKey = monthKeyOf(state.currentMonth);
@@ -1274,7 +1320,7 @@ async function refreshMonth() {
     // כבר מחזירה hours לכל דיווח, אז מחשבים את הסכום כאן בצד הלקוח -
     // חוסך בקשה שלמה לשרת בכל טעינת מסך/מעבר חודש.
     // אם כבר הצגנו מהמטמון - הרענון שקט, בלי עיגול טעינה על המסך
-    const shifts = await callApi('GET', 'getHoursMonth', { code, monthKey }, hadCache);
+    const shifts = await callApi('GET', 'getHoursMonth', { code, monthKey }, silent || hadCache);
     if (requestId !== monthLoadSequence || code !== state.code || monthKey !== monthKeyOf(state.currentMonth)) return;
     const rows = Array.isArray(shifts) ? shifts : shifts && shifts.shifts;
     if (!Array.isArray(rows)) throw new Error('לא התקבלו נתוני חודש תקינים. הנתונים השמורים נשמרו.');
@@ -1282,7 +1328,7 @@ async function refreshMonth() {
     state.shifts = rows;
     state.shifts.sort((a, b) => (a.dateStr || '').localeCompare(b.dateStr || ''));
     saveMonthToCache(monthKey, state.shifts);
-    renderShifts();
+    renderShifts(true);
     renderStatsBreakdown();
     const total = state.shifts.reduce((sum, s) => sum + (Number(s.hours) || 0), 0);
     $('month-total').textContent = Math.round(total * 100) / 100;
@@ -1292,7 +1338,7 @@ async function refreshMonth() {
   }
 }
 
-function renderShifts() {
+function renderShifts(verified = false) {
   const list = $('shifts-list');
   list.innerHTML = '';
   $('shifts-empty').classList.toggle('hidden', state.shifts.length > 0);
@@ -1323,6 +1369,7 @@ function renderShifts() {
       </div>
       <div class="shift-hours">${shift.hours ?? ''}</div>
     `;
+    decorateHoursSavedCard(card, shift, verified);
     card.addEventListener('click', () => openShiftModal(shift.dateStr, shift));
     list.appendChild(card);
   });
@@ -1526,6 +1573,7 @@ $('month-sync-retry').addEventListener('click', () => refreshMonth());
 
 function queueShiftDraft() {
   if (!state.code || shiftFormSubmitting || $('shift-modal').classList.contains('hidden')) return;
+  clearHoursSaveFeedback($('shift-date').value);
   const session = draftSession;
   const workplace = $('shift-workplace').value;
   const params = { code: state.code, dateStr: $('shift-date').value,
@@ -1646,7 +1694,7 @@ async function refreshMonthKeepingSelection(dateStr) {
        targetMonth.getMonth() !== state.currentMonth.getMonth())) {
     state.currentMonth = new Date(targetMonth.getFullYear(), targetMonth.getMonth(), 1);
   }
-  await refreshMonth();
+  await refreshMonth(true);
 }
 
 $('delete-shift-btn').addEventListener('click', async () => {
@@ -1822,6 +1870,7 @@ async function sendDurableDraft(id) {
     if (!result) result = await callApi('POST', 'saveManualShiftOnce', { ...entry.params, operationId: entry.id, expectedRevision: entry.expectedRevision }, true);
     if (!result || result.success !== true) throw new Error('לא התקבלה קבלת שמירה תקינה.');
     await HoursSafety.mark(id, 'confirmed');
+    acknowledgeHoursSave(entry, result);
     return result;
   } catch (error) {
     await HoursSafety.mark(id, ['CONFLICT','OPERATION_MISMATCH','REVIEW_REQUIRED'].includes(error.serverCode) ? 'review' : 'uncertain', error.message);
@@ -1832,6 +1881,8 @@ async function sendDurableDraft(id) {
 async function syncDurableDrafts() {
   if (durableSyncRunning || !state.code || !navigator.onLine) return;
   durableSyncRunning = true;
+  const code = state.code;
+  let saved = false;
   try {
     const entries = await HoursSafety.pending(state.code);
     const blockedDates = new Set();
@@ -1840,10 +1891,12 @@ async function syncDurableDrafts() {
       if (['queued','uncertain','sending'].includes(entry.status)) {
         const result = await sendDurableDraft(entry.id);
         if (!result || !result.success) blockedDates.add(entry.params.dateStr);
+        else saved = true;
       } else blockedDates.add(entry.params.dateStr);
     }
   } catch(e) { showToast(e.message || 'הטיוטות נשמרו לבדיקה.'); }
   finally { durableSyncRunning = false; updateReportSafetyUi(); }
+  if (saved && code === state.code) await refreshMonth(true);
 }
 
 let offlineFlushRunning = false;
@@ -4185,7 +4238,7 @@ async function loadBootstrap(prioritizeHours = false) {
       state.shifts = res.shifts;
       state.shifts.sort((a, b) => (a.dateStr || '').localeCompare(b.dateStr || ''));
       saveMonthToCache(monthKey, state.shifts);
-      renderShifts();
+      renderShifts(true);
       renderStatsBreakdown();
       const total = state.shifts.reduce((sum, s) => sum + (Number(s.hours) || 0), 0);
       $('month-total').textContent = Math.round(total * 100) / 100;
