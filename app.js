@@ -41,7 +41,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v81';
+const APP_VERSION = 'v82';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -306,8 +306,8 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
     showScreen('screen-app');
     // הצגה מיידית מהמטמון המקומי, לפני שהשרת בכלל ענה. המשתמש רואה
     // את החודש שלו מיד, והנתונים מתעדכנים ברקע כשהתשובה מגיעה.
-    renderMonthFromCache();
-    loadBootstrap();
+    const hasMonthCache = renderMonthFromCache();
+    loadBootstrap(!hasMonthCache);
     refreshUrgentCalls();
   }
 
@@ -4008,12 +4008,12 @@ function renderMonthFromCache() {
   }
 }
 
-async function loadBootstrap() {
+async function loadBootstrap(prioritizeHours = false) {
   const requestId = ++monthLoadSequence;
   const code = state.code;
   const monthKey = monthKeyOf(state.currentMonth);
   try {
-    const res = await apiGet('bootstrap', { code: state.code, monthKey });
+    let res = await apiGet('bootstrap', { code, monthKey, section: prioritizeHours ? 'hours' : 'all' });
     if (!res || res.valid === false || code !== state.code) return;
 
     if (Array.isArray(res.shifts) && requestId === monthLoadSequence && monthKey === monthKeyOf(state.currentMonth)) {
@@ -4026,6 +4026,12 @@ async function loadBootstrap() {
       $('month-total').textContent = Math.round(total * 100) / 100;
     }
 
+    if (prioritizeHours) {
+      if (Array.isArray(res.errors) && res.errors.length) showToast('טעינת השעות נכשלה; הנתונים השמורים נשמרו.');
+      // The month is already visible; ancillary data must not hold up its rendering.
+      res = await apiGet('bootstrap', { code, monthKey, section: 'extras' });
+      if (!res || res.valid === false || code !== state.code) return;
+    }
     if (Object.prototype.hasOwnProperty.call(res, 'signature')) {
       myStoredSignature = res.signature || '';
       myStoredSignatureAt = res.signatureAt || null;
