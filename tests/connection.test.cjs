@@ -116,3 +116,17 @@ test('delayed older month cannot replace current month or its cache',async()=>{
  const pending=[],saved=[]; const state={code:'test',currentMonth:new Date(2026,8,1),shifts:[]};
  const c={state,MONTH_NAMES:Array(12).fill('month'),$ :()=>({}),monthKeyOf:d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'),renderMonthFromCache:()=>false,callApi:()=>new Promise(r=>pending.push(r)),saveMonthToCache:(k,v)=>saved.push(k),renderShifts(){},renderStatsBreakdown(){},showToast(){}};vm.createContext(c);vm.runInContext(section('let monthLoadSequence = 0;', 'function renderShifts()'),c);const old=c.refreshMonth();state.currentMonth=new Date(2026,9,1);const next=c.refreshMonth();pending[1]([{hours:2,dateStr:'2026-10-01'}]);await next;pending[0]([{hours:9,dateStr:'2026-09-01'}]);await old;assert.equal(state.shifts[0].hours,2);assert.deepEqual(saved,['2026-10']);
 });
+
+test('invalid month response preserves displayed and cached reports',async()=>{
+ const saved=[],original=[{dateStr:'2026-09-01',hours:24}];const state={code:'test',currentMonth:new Date(2026,8,1),shifts:original};
+ const c={state,MONTH_NAMES:Array(12).fill('month'),$:()=>({}),monthKeyOf:()=> '2026-09',renderMonthFromCache:()=>true,callApi:async()=>({unexpected:true}),saveMonthToCache:()=>saved.push(1),renderShifts(){},renderStatsBreakdown(){},showToast(){}};
+ vm.createContext(c);vm.runInContext(section('let monthLoadSequence = 0;','function renderShifts()'),c);await c.refreshMonth();assert.equal(state.shifts,original);assert.equal(saved.length,0);
+});
+for(const method of ['POST','GET'])test('legacy fallback cannot write or read a different month: '+method,async()=>{
+ const calls=[];const c={Date,Error,monthKeyOf:()=> '2026-09',callApi:async(m,a)=>{calls.push(a);throw Error('פעולה לא מוכרת');}};vm.createContext(c);vm.runInContext(section('async function callWithFallback_(',"$('check-issues-btn')"),c);
+ await assert.rejects(c.callWithFallback_(method,'new','old',{code:'test',monthKey:method==='POST'?'2026-09':'2026-08'}),/לא בוצע שינוי/);assert.deepEqual(calls,['new']);
+});
+test('partial bootstrap leaves existing signature untouched',async()=>{
+ const c={state:{code:'test',currentMonth:new Date()},monthLoadSequence:0,monthKeyOf:()=> '2026-09',apiGet:async()=>({valid:true,errors:['signature']}),myStoredSignature:'saved signature',myStoredSignatureAt:'saved time',renderSignatureButton:()=>assert.fail('signature changed'),showToast(){}};
+ vm.createContext(c);vm.runInContext(section('async function loadBootstrap()', '// ====================================================================='),c);await c.loadBootstrap();assert.equal(c.myStoredSignature,'saved signature');assert.equal(c.myStoredSignatureAt,'saved time');
+});

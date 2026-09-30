@@ -41,7 +41,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v80';
+const APP_VERSION = 'v81';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -1195,7 +1195,9 @@ async function refreshMonth() {
     // אם כבר הצגנו מהמטמון - הרענון שקט, בלי עיגול טעינה על המסך
     const shifts = await callApi('GET', 'listShifts', { code: state.code, monthKey }, hadCache);
     if (requestId !== monthLoadSequence || code !== state.code || monthKey !== monthKeyOf(state.currentMonth)) return;
-    state.shifts = Array.isArray(shifts) ? shifts : (shifts.shifts || []);
+    const rows = Array.isArray(shifts) ? shifts : shifts && shifts.shifts;
+    if (!Array.isArray(rows)) throw new Error('לא התקבלו נתוני חודש תקינים. הנתונים השמורים נשמרו.');
+    state.shifts = rows;
     state.shifts.sort((a, b) => (a.dateStr || '').localeCompare(b.dateStr || ''));
     saveMonthToCache(monthKey, state.shifts);
     renderShifts();
@@ -1547,6 +1549,10 @@ async function callWithFallback_(method, newAction, oldAction, params) {
     return await callApi(method, newAction, params);
   } catch (err) {
     if (String(err && err.message || '').indexOf('פעולה לא מוכרת') === -1) throw err;
+    // Legacy actions do not preserve the selected month; never redirect a write.
+    if (method !== 'GET' || params.monthKey !== monthKeyOf(new Date())) {
+      throw new Error('פעולה זו דורשת עדכון שרת שתומך בחודש הנבחר. לא בוצע שינוי בדיווחים.');
+    }
     const legacy = { code: params.code };
     return await callApi(method, oldAction, legacy);
   }
@@ -4020,9 +4026,12 @@ async function loadBootstrap() {
       $('month-total').textContent = Math.round(total * 100) / 100;
     }
 
-    myStoredSignature = res.signature || '';
-    myStoredSignatureAt = res.signatureAt || null;
-    renderSignatureButton();
+    if (Object.prototype.hasOwnProperty.call(res, 'signature')) {
+      myStoredSignature = res.signature || '';
+      myStoredSignatureAt = res.signatureAt || null;
+      renderSignatureButton();
+    }
+    if (Array.isArray(res.errors) && res.errors.length) showToast('חלק מהנתונים לא נטענו. הנתונים השמורים נשמרו; אפשר לנסות לרענן.');
 
     if (Array.isArray(res.alerts)) applyPersonalAlerts(res.alerts);
     if (Array.isArray(res.missedPunch)) applyMissedPunchReports(res.missedPunch);
