@@ -41,7 +41,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v84';
+const APP_VERSION = 'v85';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -1193,7 +1193,6 @@ let shiftFormSubmitting = false;
 let draftSession = 0;
 let draftWriteFailed = false;
 function setMonthSync(phase, detail) {
-  renderHoursSaveFeedback();
   if (monthSync.code !== state.code || monthSync.month !== monthKeyOf(state.currentMonth)) monthSync = { revision: null, dayRevisions: {} };
   monthSync = { ...monthSync, code: state.code, month: monthKeyOf(state.currentMonth), phase };
   const box = $('month-sync-status');
@@ -1258,33 +1257,18 @@ async function updateReportSafetyUi() {
   } catch (e) { box.hidden = false; box.textContent = e.message; }
 }
 
-// A green receipt is shown only after the server acknowledges this operation.
+// Highlight a refreshed report only after the server acknowledges its save.
 const recentHoursSaves = new Map();
 function hoursSaveKey(code, dateStr) { return JSON.stringify([code, dateStr]); }
-function renderHoursSaveFeedback() {
-  const box = $('hours-save-feedback');
-  if (!box) return;
-  const month = state.currentMonth ? monthKeyOf(state.currentMonth) : '';
-  const matches = [...recentHoursSaves.values()].filter(e => e.code === state.code && e.dateStr.startsWith(month));
-  const last = matches.sort((a,b) => b.savedAt - a.savedAt)[0];
-  box.hidden = !last;
-  if (last) {
-    const date = last.dateStr.split('-').reverse().join('.');
-    const time = new Date(last.savedAt).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
-    box.querySelector('[data-save-message]').textContent = '✓ השינוי בדיווח ל־' + date + ' נקלט בהצלחה בשרת בשעה ' + time;
-  }
-}
 function acknowledgeHoursSave(entry, result) {
   if (!result || result.success !== true) return;
   recentHoursSaves.set(hoursSaveKey(entry.params.code, entry.params.dateStr), {
     code: entry.params.code, dateStr: entry.params.dateStr, savedAt: Date.now(), operationId: entry.id
   });
-  renderHoursSaveFeedback();
 }
 function clearHoursSaveFeedback(dateStr) {
   if (recentHoursSaves.delete(hoursSaveKey(state.code, dateStr))) {
-    renderHoursSaveFeedback();
-    // Remove the old success indication as soon as a new edit starts.
+      // Remove the old success indication as soon as a new edit starts.
     document.querySelectorAll('#shifts-list .shift-save-confirmed').forEach(card => {
       if (card.dataset.savedDate === dateStr) {
         card.classList.remove('shift-save-confirmed');
@@ -1549,6 +1533,7 @@ function openShiftModal(dateStr, existing) {
   $('shift-notes').value = (existing?.notes || '').replace(/\*\*\*/g, '').trim();
   $('delete-shift-btn').classList.toggle('hidden', !existing);
   toggleTimeFields();
+  document.body.classList.add('shift-report-open');
   $('shift-modal').classList.remove('hidden');
 }
 
@@ -1565,6 +1550,7 @@ async function closeShiftModal() {
   await draftAutosave;
   if (draftWriteFailed) return;
   $('shift-modal').classList.add('hidden');
+  document.body.classList.remove('shift-report-open');
   updateReportSafetyUi();
 }
 $('close-shift-modal').addEventListener('click', closeShiftModal);
