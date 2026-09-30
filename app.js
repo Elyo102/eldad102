@@ -41,7 +41,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v82';
+const APP_VERSION = 'v83';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -189,7 +189,7 @@ async function apiGetFresh(action, params = {}) {
   catch (error) {
     // Google can return 404 on its temporary content redirect even while /exec is live.
     // Retry once from /exec, only for known reads. Never replay exports/imports or POST.
-    const safeReads = new Set(['ping', 'login', 'bootstrap', 'listShifts', 'getMonthlyTotal',
+    const safeReads = new Set(['getHoursMonth', 'getHoursSaveReceipt', 'ping', 'login', 'bootstrap', 'listShifts', 'getMonthlyTotal',
       'listMonthsWithData', 'listMyPersonalAlerts', 'listMyUrgentCalls', 'listMyMissedPunchReports',
       'getMyShortcuts', 'listMyEvents', 'listGuardEvents', 'listMyGuardEvents']);
     if (error.httpStatus !== 404 || !safeReads.has(action)) throw error;
@@ -211,15 +211,19 @@ async function apiPost(action, params = {}) {
 // שמשמש את רענוני הרקע - בלי זה העיגול המסתובב קופץ על כל המסך
 // בכל מחזור רענון, גם כשהמשתמש לא ביקש שום דבר.
 async function callApi(method, action, params, silent) {
+  const started = Date.now();
   if (!silent) setLoading(true);
   try {
     const result = method === 'GET' ? await apiGet(action, params) : await apiPost(action, params);
     if (result && result.success === false) {
-      throw new Error(result.error || result.message || 'שגיאה לא ידועה');
+      const error = new Error(result.error || result.message || 'שגיאה לא ידועה');
+      error.serverCode = result.code || '';
+      throw error;
     }
     return result;
   } finally {
     if (!silent) setLoading(false);
+    console.debug('hours_api_timing', { action, method, elapsedMs: Date.now() - started });
   }
 }
 
@@ -307,11 +311,12 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
     // הצגה מיידית מהמטמון המקומי, לפני שהשרת בכלל ענה. המשתמש רואה
     // את החודש שלו מיד, והנתונים מתעדכנים ברקע כשהתשובה מגיעה.
     const hasMonthCache = renderMonthFromCache();
+    setMonthSync(hasMonthCache ? 'cached' : 'loading');
     loadBootstrap(!hasMonthCache);
     refreshUrgentCalls();
   }
 
-  flushOfflineQueue();
+  syncDurableDrafts();
   loadShortcutsFromServer();
   startPersonalAlertsPolling();
 }
@@ -1177,6 +1182,81 @@ function monthKeyOf(date) {
   return `${y}-${m}`;
 }
 
+let monthSync = { code: null, month: null, phase: 'loading' };
+let activeDraftId = null;
+let activeDraftVersion;
+let draftAutosave = Promise.resolve();
+let safetyUiSequence = 0;
+let durableSyncRunning = false;
+let shiftSubmissionRunning = false;
+let shiftFormSubmitting = false;
+let draftSession = 0;
+let draftWriteFailed = false;
+function setMonthSync(phase, detail) {
+  if (monthSync.code !== state.code || monthSync.month !== monthKeyOf(state.currentMonth)) monthSync = { revision: null, dayRevisions: {} };
+  monthSync = { ...monthSync, code: state.code, month: monthKeyOf(state.currentMonth), phase };
+  const box = $('month-sync-status');
+  if (box) {
+    const labels = { loading: 'טוען את דיווחי החודש…', cached: 'מוצג עותק שמור במכשיר; בודק עדכון מול השרת…', ready: 'נתוני החודש עודכנו מהשרת', error: 'לא ניתן לאמת את נתוני החודש. אין להסיק שאין דיווחים.' };
+    box.querySelector('[data-status-text]').textContent = detail || labels[phase];
+    box.dataset.phase = phase;
+    box.querySelector('button').hidden = phase === 'ready';
+  }
+  if (phase === 'loading') {
+    state.shifts = [];
+    $('shifts-list').replaceChildren();
+    $('month-total').textContent = '—';
+    $('shifts-empty').classList.add('hidden');
+    if ($('stats-breakdown')) $('stats-breakdown').classList.add('hidden');
+  }
+  updateReportSafetyUi();
+}
+async function updateReportSafetyUi() {
+  const request = ++safetyUiSequence;
+  const code = state.code;
+  const btn = $('confirm-month-btn');
+  let pending = true;
+  if (btn) btn.disabled = true;
+  try { pending = (await HoursSafety.pending(code)).length > 0; } catch (e) {}
+  if (request !== safetyUiSequence || code !== state.code) return;
+  if (btn) btn.disabled = monthSync.phase !== 'ready' || monthSync.code !== state.code || monthSync.month !== monthKeyOf(state.currentMonth) || !/^[a-f0-9]{64}$/.test(monthSync.revision || '') || pending;
+  const box = $('saved-drafts');
+  if (!box) return;
+  box.replaceChildren();
+  try {
+    const entries = await HoursSafety.pending(code);
+    if (request !== safetyUiSequence || code !== state.code) return;
+    box.hidden = entries.length === 0;
+    for (const entry of entries) {
+      const row = document.createElement('div');
+      const label = document.createElement('span');
+      label.textContent = entry.params.dateStr + ' — ' + (entry.status === 'draft' ? 'טיוטה שמורה במכשיר' : 'נשלח; נדרש אימות קבלה לפני ניסיון נוסף');
+      const button = document.createElement('button');
+      button.type = 'button'; button.textContent = 'פתח לבדיקה';
+      button.addEventListener('click', async () => {
+        try {
+        if (entry.status !== 'draft' && !entry.legacy) {
+          await sendDurableDraft(entry.id);
+          const current = await HoursSafety.read(entry.id);
+          if (current.status === 'confirmed') { await refreshMonth(); return; }
+        }
+        let edit = await HoursSafety.read(entry.id);
+        if (edit.status !== 'draft' || !edit.params.expectedRevision) {
+          const date = new Date(edit.params.dateStr + 'T12:00:00');
+          if (!isNaN(date)) state.currentMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+          await refreshMonth();
+          if (monthSync.phase !== 'ready' || !confirm('בדוק את הדיווח שמופיע בחודש לפני עריכה. לפתוח עותק של הטיוטה לעריכה ידנית? המקור יישמר.')) return;
+          edit = await HoursSafety.forkForReview(edit.id, { ...edit.params, expectedRevision: monthSync.dayRevisions && monthSync.dayRevisions[edit.params.dateStr] });
+        }
+        openShiftModal(edit.params.dateStr, edit.params);
+        activeDraftId = edit.id; activeDraftVersion = edit.version;
+        } catch(e) { showToast(e.message || 'לא ניתן לפתוח את הטיוטה. המקור נשמר.'); }
+      });
+      row.append(label, button); box.append(row);
+    }
+  } catch (e) { box.hidden = false; box.textContent = e.message; }
+}
+
 let monthLoadSequence = 0;
 async function refreshMonth() {
   const requestId = ++monthLoadSequence;
@@ -1187,16 +1267,18 @@ async function refreshMonth() {
   // ציור מיידי מהמטמון המקומי. אם יש נתונים שמורים המסך מתמלא מיד,
   // והבקשה לשרת רק מעדכנת אותו. מעבר בין חודשים מרגיש מיידי.
   const hadCache = renderMonthFromCache();
+  setMonthSync(hadCache ? 'cached' : 'loading');
 
   try {
     // בעבר: שתי בקשות נפרדות לשרת (listShifts + getMonthlyTotal). listShifts
     // כבר מחזירה hours לכל דיווח, אז מחשבים את הסכום כאן בצד הלקוח -
     // חוסך בקשה שלמה לשרת בכל טעינת מסך/מעבר חודש.
     // אם כבר הצגנו מהמטמון - הרענון שקט, בלי עיגול טעינה על המסך
-    const shifts = await callApi('GET', 'listShifts', { code: state.code, monthKey }, hadCache);
+    const shifts = await callApi('GET', 'getHoursMonth', { code, monthKey }, hadCache);
     if (requestId !== monthLoadSequence || code !== state.code || monthKey !== monthKeyOf(state.currentMonth)) return;
     const rows = Array.isArray(shifts) ? shifts : shifts && shifts.shifts;
     if (!Array.isArray(rows)) throw new Error('לא התקבלו נתוני חודש תקינים. הנתונים השמורים נשמרו.');
+    monthSync.revision = shifts.revision; monthSync.dayRevisions = shifts.dayRevisions || {};
     state.shifts = rows;
     state.shifts.sort((a, b) => (a.dateStr || '').localeCompare(b.dateStr || ''));
     saveMonthToCache(monthKey, state.shifts);
@@ -1204,8 +1286,9 @@ async function refreshMonth() {
     renderStatsBreakdown();
     const total = state.shifts.reduce((sum, s) => sum + (Number(s.hours) || 0), 0);
     $('month-total').textContent = Math.round(total * 100) / 100;
+    setMonthSync('ready');
   } catch (err) {
-    if (requestId === monthLoadSequence && code === state.code && !hadCache) showToast(err.message || 'שגיאה בטעינת החודש');
+    if (requestId === monthLoadSequence && code === state.code) setMonthSync('error');
   }
 }
 
@@ -1394,6 +1477,8 @@ $('shift-workplace').addEventListener('change', () => {
 });
 
 function openShiftModal(dateStr, existing) {
+  draftSession++; draftWriteFailed = false;
+  activeDraftId = null; activeDraftVersion = undefined;
   state.editingDateStr = dateStr || null;
   $('shift-form-error').classList.add('hidden');
   $('shift-modal-title').textContent = existing ? 'עריכת דיווח' : 'דיווח חדש';
@@ -1429,14 +1514,51 @@ function defaultNewDate() {
   return monthKeyOf(state.currentMonth) + '-01';
 }
 
-function closeShiftModal() {
+async function closeShiftModal() {
+  await draftAutosave;
+  if (draftWriteFailed) return;
   $('shift-modal').classList.add('hidden');
+  updateReportSafetyUi();
 }
 $('close-shift-modal').addEventListener('click', closeShiftModal);
 $('add-shift-btn').addEventListener('click', () => openShiftModal(null, null));
+$('month-sync-retry').addEventListener('click', () => refreshMonth());
+
+function queueShiftDraft() {
+  if (!state.code || shiftFormSubmitting || $('shift-modal').classList.contains('hidden')) return;
+  const session = draftSession;
+  const workplace = $('shift-workplace').value;
+  const params = { code: state.code, dateStr: $('shift-date').value,
+    dayType: $('shift-daytype').value, startTime: $('shift-start').value, endTime: $('shift-end').value,
+    entry2: $('shift-start2').value, exit2: $('shift-end2').value, breakType: $('shift-break-type').value,
+    notes: $('shift-notes').value, workplace: workplace === 'אחר' ? $('shift-workplace-other').value : workplace };
+  const revision = monthSync.code === state.code && monthSync.month === params.dateStr.slice(0,7) ? (monthSync.dayRevisions || {})[params.dateStr] : undefined;
+  draftAutosave = draftAutosave.then(async () => {
+    try {
+      // A queued snapshot belongs to its original form, even if another form was opened.
+      const sameSession = session === draftSession;
+      const previous = sameSession && activeDraftId ? await HoursSafety.read(activeDraftId) : null;
+      if (previous && previous.status !== 'draft') return;
+      params.expectedRevision = previous && previous.params.dateStr === params.dateStr ? previous.params.expectedRevision : revision;
+      const entry = await HoursSafety.save(params, previous && previous.id, previous && activeDraftVersion);
+      if (sameSession) { activeDraftId = entry.id; activeDraftVersion = entry.version; draftWriteFailed = false; }
+      $('confirm-month-btn').disabled = true;
+    } catch (e) {
+      draftWriteFailed = true;
+      $('shift-form-error').textContent = 'הטיוטה לא נשמרה במכשיר: ' + e.message + ' אין לסגור את הטופס.';
+      $('shift-form-error').classList.remove('hidden');
+    }
+  });
+}
+$('shift-form').addEventListener('input', queueShiftDraft);
+$('shift-form').addEventListener('change', queueShiftDraft);
 
 $('shift-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (shiftFormSubmitting) return;
+  shiftFormSubmitting = true;
+  try {
+  await draftAutosave;
   const dateStr = $('shift-date').value;
   const dayType = $('shift-daytype').value;
   const startTime = LOCKED_START_TIME[dayType] || $('shift-start').value;
@@ -1491,25 +1613,30 @@ $('shift-form').addEventListener('submit', async (e) => {
       code: state.code, dateStr, startTime, endTime, notes: notesToSave, dayType, workplace,
       entry2, exit2, breakType
     };
-    const result = await callApi('POST', 'saveManualShift', params);
+    const existingDraft = activeDraftId ? await HoursSafety.read(activeDraftId) : null;
+    params.expectedRevision = existingDraft && existingDraft.params.dateStr === dateStr ? existingDraft.params.expectedRevision : (monthSync.code === state.code && monthSync.month === dateStr.slice(0,7) ? (monthSync.dayRevisions || {})[dateStr] : undefined);
+    const draft = await HoursSafety.save(params, activeDraftId, activeDraftVersion);
+    activeDraftId = draft.id;
+    activeDraftVersion = draft.version;
+    await HoursSafety.stage(draft.id, params.expectedRevision);
+    shiftSubmissionRunning = true;
+    updateReportSafetyUi();
+    const result = await sendDurableDraft(draft.id);
+    if (!result || !result.success) throw new Error('הדיווח נשמר במכשיר וממתין לאימות קבלה.');
+    activeDraftId = null;
+    updateReportSafetyUi();
     showToast(result.message || 'נשמר בהצלחה');
     closeShiftModal();
     await refreshMonthKeepingSelection(dateStr);
   } catch (err) {
-    // אם זו שגיאת רשת אמיתית (לא שגיאת אימות מהשרת) - שומרים בתור
-    // מקומי במקום לאבד את הדיווח, ומנסים לסנכרן אוטומטית כשהחיבור חוזר.
-    if (isNetworkError(err)) {
-      queueOfflineAction('saveManualShift', {
-        code: state.code, dateStr, startTime, endTime, notes: notesToSave, dayType, workplace,
-        entry2, exit2, breakType
-      });
-      showToast('אין חיבור כרגע - הדיווח נשמר ויישלח אוטומטית כשהחיבור יחזור');
-      closeShiftModal();
-    } else {
-      errBox.textContent = err.message || 'שגיאה בשמירה';
-      errBox.classList.remove('hidden');
+    if (activeDraftId) {
+      try { const draft = await HoursSafety.read(activeDraftId); if (draft && draft.status === 'sending') await HoursSafety.mark(activeDraftId, 'uncertain', err.message); } catch (storageError) {}
     }
-  }
+    errBox.textContent = (err.message || 'שגיאה בשמירה') + ' הטופס נשאר פתוח. בדוק את אזור הטיוטות לפני ניסיון נוסף.';
+    errBox.classList.remove('hidden');
+    updateReportSafetyUi();
+  } finally { shiftSubmissionRunning = false; }
+  } finally { shiftFormSubmitting = false; }
 });
 
 async function refreshMonthKeepingSelection(dateStr) {
@@ -1682,8 +1809,41 @@ function updateOfflineQueueBanner() {
   if (queue.length === 0) { banner.classList.add('hidden'); }
   else {
     banner.classList.remove('hidden');
-    banner.textContent = queue.length + ' דיווחים ממתינים לסנכרון - נשמרים במכשיר עד אישור מהשרת';
+    banner.textContent = queue.length + ' דיווחים מהתור הישן נשמרו במכשיר. יש לבדוק את אזור הטיוטות לפני שליחה מחדש.';
   }
+}
+
+async function sendDurableDraft(id) {
+  const entry = await HoursSafety.claim(id);
+  if (!entry) { updateReportSafetyUi(); return null; }
+  try {
+    const receipt = entry.needsReceiptCheck ? await callApi('GET', 'getHoursSaveReceipt', { code: entry.params.code, operationId: entry.id }, true) : { state: 'NOT_FOUND' };
+    let result = receipt.state === 'APPLIED' ? receipt.result : null;
+    if (!result) result = await callApi('POST', 'saveManualShiftOnce', { ...entry.params, operationId: entry.id, expectedRevision: entry.expectedRevision }, true);
+    if (!result || result.success !== true) throw new Error('לא התקבלה קבלת שמירה תקינה.');
+    await HoursSafety.mark(id, 'confirmed');
+    return result;
+  } catch (error) {
+    await HoursSafety.mark(id, ['CONFLICT','OPERATION_MISMATCH','REVIEW_REQUIRED'].includes(error.serverCode) ? 'review' : 'uncertain', error.message);
+    showToast(error.message || 'הדיווח נשמר במכשיר וממתין לאימות.', 7000);
+    return null;
+  } finally { updateReportSafetyUi(); }
+}
+async function syncDurableDrafts() {
+  if (durableSyncRunning || !state.code || !navigator.onLine) return;
+  durableSyncRunning = true;
+  try {
+    const entries = await HoursSafety.pending(state.code);
+    const blockedDates = new Set();
+    for (const entry of entries) {
+      if (blockedDates.has(entry.params.dateStr)) continue;
+      if (['queued','uncertain','sending'].includes(entry.status)) {
+        const result = await sendDurableDraft(entry.id);
+        if (!result || !result.success) blockedDates.add(entry.params.dateStr);
+      } else blockedDates.add(entry.params.dateStr);
+    }
+  } catch(e) { showToast(e.message || 'הטיוטות נשמרו לבדיקה.'); }
+  finally { durableSyncRunning = false; updateReportSafetyUi(); }
 }
 
 let offlineFlushRunning = false;
@@ -1728,7 +1888,7 @@ async function flushOfflineQueue() {
   }
 }
 
-window.addEventListener('online', flushOfflineQueue);
+window.addEventListener('online', syncDurableDrafts);
 updateOfflineQueueBanner(); // בכל טעינת האפליקציה - מציג אם יש פעולות ממתינות משבתחילה
 
 // ---------------------------------------------------------------------
@@ -2486,11 +2646,13 @@ $('open-alerts-list').addEventListener('click', async (e) => {
 // אישור דוח שעות חודשי (כבאי)
 // ---------------------------------------------------------------------
 $('confirm-month-btn').addEventListener('click', async () => {
+  await updateReportSafetyUi();
+  if ($('confirm-month-btn').disabled) { showToast('יש להשלים טעינה ואימות של הדיווחים הממתינים לפני אישור החודש.'); return; }
   const monthKey = monthKeyOf(state.currentMonth);
   const label = `${MONTH_NAMES[state.currentMonth.getMonth()]} ${state.currentMonth.getFullYear()}`;
   if (!confirm(`לאשר שדוח השעות לחודש ${label} תקין? לאחר האישור ייווצר דוח סופי ולא ניתן לבטל את האישור.`)) return;
   try {
-    const res = await callApi('POST', 'submitMonthlyConfirmation', { code: state.code, monthKey });
+    const res = await callApi('POST', 'submitMonthlyConfirmation', { code: state.code, monthKey, expectedRevision: monthSync.revision });
     showToast(res.message || 'הדוח אושר בהצלחה');
   } catch (err) {
     showToast(err.message || 'שגיאה באישור הדוח');
@@ -3997,7 +4159,9 @@ function renderMonthFromCache() {
   try {
     const raw = localStorage.getItem(monthCacheKey(monthKey));
     if (!raw) return false;
-    state.shifts = JSON.parse(raw);
+    const cachedRows = JSON.parse(raw);
+    if (!Array.isArray(cachedRows)) return false;
+    state.shifts = cachedRows;
     renderShifts();
     renderStatsBreakdown();
     const total = state.shifts.reduce((sum, s) => sum + (Number(s.hours) || 0), 0);
@@ -4017,6 +4181,7 @@ async function loadBootstrap(prioritizeHours = false) {
     if (!res || res.valid === false || code !== state.code) return;
 
     if (Array.isArray(res.shifts) && requestId === monthLoadSequence && monthKey === monthKeyOf(state.currentMonth)) {
+      monthSync.revision = res.revision; monthSync.dayRevisions = res.dayRevisions || {};
       state.shifts = res.shifts;
       state.shifts.sort((a, b) => (a.dateStr || '').localeCompare(b.dateStr || ''));
       saveMonthToCache(monthKey, state.shifts);
@@ -4024,7 +4189,8 @@ async function loadBootstrap(prioritizeHours = false) {
       renderStatsBreakdown();
       const total = state.shifts.reduce((sum, s) => sum + (Number(s.hours) || 0), 0);
       $('month-total').textContent = Math.round(total * 100) / 100;
-    }
+      setMonthSync('ready');
+    } else if (requestId === monthLoadSequence) { setMonthSync('error'); }
 
     if (prioritizeHours) {
       if (Array.isArray(res.errors) && res.errors.length) showToast('טעינת השעות נכשלה; הנתונים השמורים נשמרו.');
@@ -4043,7 +4209,8 @@ async function loadBootstrap(prioritizeHours = false) {
     if (Array.isArray(res.missedPunch)) applyMissedPunchReports(res.missedPunch);
     if (Array.isArray(res.proposals)) applyFixProposals(res.proposals);
   } catch (e) {
-    // אין רשת - מה שהוצג מהמטמון נשאר על המסך, וזה בדיוק הרצוי
+    if (requestId === monthLoadSequence && code === state.code && monthSync.phase !== 'ready') setMonthSync('error');
+    // שומרים את הנתונים הקיימים ומציגים מצב מפורש.
   }
 }
 
@@ -6148,21 +6315,13 @@ function toggleDrawer(force) {
   if (fab) fab.classList.toggle('drawer-open', drawerOpen);
 }
 
-// מחליף את התנהגות כפתור הפלוס: פותח מגירה במקום את טופס הדיווח.
-// שכפול הכפתור מסיר את המאזין הישן בלי לגעת ב-index.html.
+// Keep the primary action attached directly to the report form.
 function hijackFab() {
-  const old = document.getElementById('add-shift-btn');
-  if (!old || old.dataset.drawerized === '1') return;
-
-  const fresh = old.cloneNode(true);
-  fresh.dataset.drawerized = '1';
-  fresh.innerHTML = '+';
-  old.parentNode.replaceChild(fresh, old);
-
-  fresh.addEventListener('click', (e) => {
-    e.stopPropagation();
-    toggleDrawer();
-  });
+  const button = document.getElementById('add-shift-btn');
+  if (!button || button.dataset.primaryReport === '1') return;
+  button.dataset.primaryReport = '1';
+  button.textContent = '+ דיווח';
+  button.setAttribute('aria-label', 'הוספת דיווח שעות');
 }
 
 document.addEventListener('DOMContentLoaded', () => { buildDrawer(); hijackFab(); });

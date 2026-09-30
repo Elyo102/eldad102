@@ -600,3 +600,19 @@ textarea.text-input { resize: vertical; }
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* Explicit sync state and recoverable local drafts. */
+#month-sync-status { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px; border:1px solid #b4c6d4; border-radius:12px; background:#edf5fb; color:#173b55; margin-bottom:12px; }
+#month-sync-status[data-phase="error"] { background:#fff2dc; color:#663e00; border-color:#b8790a; }
+#month-sync-status[data-phase="ready"] { background:#eaf7ee; color:#215a31; }
+#month-sync-status button, #saved-drafts button { min-height:44px; padding:8px 12px; border:1px solid currentColor; border-radius:8px; background:white; color:inherit; flex-shrink:0; }
+#saved-drafts { background:#fff5df; border:1px solid #bd8d36; border-radius:12px; padding:12px; margin-bottom:14px; }
+#saved-drafts[hidden] { display:none; }
+#saved-drafts > div { display:flex; gap:10px; align-items:center; justify-content:space-between; padding:8px 0; }
+#confirm-month-btn:disabled { opacity:.65; cursor:not-allowed; }
+@media(max-width:600px) {
+  #screen-app .app-header { padding-top:calc(12px + env(safe-area-inset-top, 0px)); padding-bottom:14px; }
+  #screen-app .header-actions { gap:6px; }
+  #screen-app .header-actions .icon-btn { min-width:44px; min-height:44px; }
+  #month-sync-status, #saved-drafts { font-size:14px; }
+}

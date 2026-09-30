@@ -46,8 +46,8 @@
   ];
 
   var COLLAPSE_KEY = 'ds102_side_tabs_collapsed';
-  var tabsCollapsed = false;
-  try { tabsCollapsed = localStorage.getItem(COLLAPSE_KEY) === '1'; } catch (e) {}
+  var tabsCollapsed = window.matchMedia('(max-width: 600px)').matches;
+  try { var savedCollapse = localStorage.getItem(COLLAPSE_KEY); if (savedCollapse !== null) tabsCollapsed = savedCollapse === '1'; } catch (e) {}
   var TAB_H = 96;
   var TAB_GAP = 8;
   var TAB_BOTTOM = 90;
@@ -63,7 +63,7 @@
 
     var css = [
       /* html body נדרש כדי לגבור על הכללים של app.js */
-      'html body .fab, html body #add-shift-btn { display: none !important; }',
+      'html body #add-shift-btn:not(.hidden) { display: flex !important; width: auto !important; min-width: 104px; height: 48px !important; border-radius: 24px !important; font-size: 17px !important; line-height: 1 !important; white-space: nowrap; padding: 0 18px !important; align-items: center; justify-content: center; left: 16px; right: auto; bottom: calc(26px + env(safe-area-inset-bottom, 0px)); }',
       'html body nav.bottom-tools:not(#shortcuts-bar) { display: none !important; }',
       'html body #shortcuts-bar { display: none !important; }',
 

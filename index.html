@@ -146,31 +146,31 @@
         <span id="user-name">-</span>
       </div>
       <div class="header-actions">
-        <button id="help-btn-app" class="icon-btn" title="עזרה">?</button>
-        <button id="enable-push-btn" class="icon-btn" title="קבלת התראות">🔔</button>
-        <button id="send-admin-message-btn" class="icon-btn" title="שלח הודעה למנהל">✉</button>
-        <button id="documents-btn" class="icon-btn" title="המסמכים שלי" style="position:relative">
+        <button id="help-btn-app" class="icon-btn" aria-label="עזרה" title="עזרה">?</button>
+        <button id="enable-push-btn" class="icon-btn" aria-label="קבלת התראות" title="קבלת התראות">🔔</button>
+        <button id="send-admin-message-btn" class="icon-btn" aria-label="שלח הודעה למנהל" title="שלח הודעה למנהל">✉</button>
+        <button id="documents-btn" class="icon-btn" aria-label="המסמכים שלי" title="המסמכים שלי" style="position:relative">
           📁
           <span id="documents-badge" class="hidden" style="position:absolute;top:-4px;left:-4px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;border-radius:50%;min-width:16px;height:16px;display:flex;align-items:center;justify-content:center;padding:0 3px">0</span>
         </button>
-        <button id="procedures-btn" class="icon-btn" title="נהלים">📋</button>
-        <button id="team-btn" class="icon-btn hidden" title="צוות ניהול">👥</button>
-        <button id="shift-team-btn" class="icon-btn hidden" title="ניהול משמרת">🚒</button>
-        <button id="calendar-btn" class="icon-btn hidden" title="יומן אירועים">📅</button>
-        <button id="admin-btn" class="icon-btn hidden" title="ניהול מערכת" style="position:relative">
+        <button id="procedures-btn" class="icon-btn" aria-label="נהלים" title="נהלים">📋</button>
+        <button id="team-btn" class="icon-btn hidden" aria-label="צוות ניהול" title="צוות ניהול">👥</button>
+        <button id="shift-team-btn" class="icon-btn hidden" aria-label="ניהול משמרת" title="ניהול משמרת">🚒</button>
+        <button id="calendar-btn" class="icon-btn hidden" aria-label="יומן אירועים" title="יומן אירועים">📅</button>
+        <button id="admin-btn" class="icon-btn hidden" aria-label="ניהול מערכת" title="ניהול מערכת" style="position:relative">
           ⚙
           <span id="admin-alerts-badge" class="hidden" style="position:absolute;top:-4px;left:-4px;background:var(--danger);color:#fff;font-size:10px;font-weight:700;border-radius:50%;min-width:16px;height:16px;display:flex;align-items:center;justify-content:center;padding:0 3px">0</span>
         </button>
-        <button id="logout-btn" class="icon-btn" title="יציאה">יציאה</button>
+        <button id="logout-btn" class="icon-btn" aria-label="יציאה" title="יציאה">יציאה</button>
       </div>
     </div>
 
     <div id="month-section-hr-hidden">
       <div class="month-nav">
-        <button id="prev-month" class="icon-btn">›</button>
+        <button id="prev-month" aria-label="החודש הקודם" class="icon-btn">›</button>
         <div class="month-label" id="month-label">-</div>
-        <button id="next-month" class="icon-btn">‹</button>
-        <button id="export-sheet-btn" class="icon-btn export-btn" title="ייצוא לגיליון Google Sheets">
+        <button id="next-month" aria-label="החודש הבא" class="icon-btn">‹</button>
+        <button id="export-sheet-btn" class="icon-btn export-btn" aria-label="ייצוא לגיליון Google Sheets" title="ייצוא לגיליון Google Sheets">
           <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
             <rect x="2" y="2" width="16" height="16" rx="2.5" fill="#0f9d58"/>
             <g stroke="#fff" stroke-width="1.2">
@@ -185,9 +185,9 @@
 
       <div class="total-card">
         <div class="total-label">סה"כ שעות בחודש</div>
-        <div class="total-value" id="month-total">0</div>
+        <div class="total-value" id="month-total">—</div>
       </div>
-      <button id="confirm-month-btn" class="btn btn-install" style="margin-top:10px">קראתי ואישרתי - דוח השעות תקין</button>
+      <button disabled id="confirm-month-btn" class="btn btn-install" style="margin-top:10px">קראתי ואישרתי - דוח השעות תקין</button>
     </div>
   </header>
 
@@ -199,11 +199,13 @@
       <div class="stats-card-title">פירוט החודש לפי סוג יום</div>
       <div id="stats-breakdown-rows"></div>
     </div>
+    <div id="month-sync-status" role="status" aria-live="polite"><span data-status-text>טוען את דיווחי החודש…</span><button type="button" id="month-sync-retry">נסה שוב</button></div>
+    <div id="saved-drafts" hidden aria-label="דיווחים שמורים במכשיר"></div>
     <div id="shifts-list" class="shifts-list"></div>
     <div id="shifts-empty" class="empty-state hidden">אין דיווחים לחודש הזה עדיין</div>
   </main>
 
-  <button id="add-shift-btn" class="fab" title="הוספת דיווח">+</button>
+  <button id="add-shift-btn" class="fab" aria-label="הוספת דיווח" title="הוספת דיווח">+</button>
 
   <nav class="bottom-tools">
     <button id="check-issues-btn" class="tool-btn">בדוק בעיות</button>
@@ -278,7 +280,7 @@
     <div class="header-top">
       <div class="user-info"><span>ניהול מערכת</span></div>
       <div class="header-actions">
-        <button id="admin-back-btn" class="icon-btn" title="חזרה">חזרה</button>
+        <button id="admin-back-btn" class="icon-btn" aria-label="חזרה" title="חזרה">חזרה</button>
       </div>
     </div>
   </header>
@@ -415,7 +417,7 @@
     <div class="header-top">
       <div class="user-info"><span>צוות ניהול</span></div>
       <div class="header-actions">
-        <button id="team-back-btn" class="icon-btn" title="חזרה">חזרה</button>
+        <button id="team-back-btn" class="icon-btn" aria-label="חזרה" title="חזרה">חזרה</button>
       </div>
     </div>
   </header>
@@ -432,7 +434,7 @@
     <div class="header-top">
       <div class="user-info"><span id="shift-team-title">ניהול משמרת</span></div>
       <div class="header-actions">
-        <button id="shift-team-back-btn" class="icon-btn" title="חזרה">חזרה</button>
+        <button id="shift-team-back-btn" class="icon-btn" aria-label="חזרה" title="חזרה">חזרה</button>
       </div>
     </div>
   </header>
@@ -470,7 +472,7 @@
     <div class="header-top">
       <div class="user-info"><span>המסמכים שלי</span></div>
       <div class="header-actions">
-        <button id="documents-back-btn" class="icon-btn" title="חזרה">חזרה</button>
+        <button id="documents-back-btn" class="icon-btn" aria-label="חזרה" title="חזרה">חזרה</button>
       </div>
     </div>
   </header>
@@ -498,7 +500,7 @@
     <div class="header-top">
       <div class="user-info"><span>📅 יומן אירועים</span></div>
       <div class="header-actions">
-        <button id="calendar-back-btn" class="icon-btn" title="חזרה">חזרה</button>
+        <button id="calendar-back-btn" class="icon-btn" aria-label="חזרה" title="חזרה">חזרה</button>
       </div>
     </div>
   </header>
@@ -558,7 +560,7 @@
     <div class="header-top">
       <div class="user-info"><span>נהלים</span></div>
       <div class="header-actions">
-        <button id="procedures-back-btn" class="icon-btn" title="חזרה">חזרה</button>
+        <button id="procedures-back-btn" class="icon-btn" aria-label="חזרה" title="חזרה">חזרה</button>
       </div>
     </div>
   </header>
@@ -832,10 +834,11 @@
 <div id="toast" class="toast hidden"></div>
 <div id="loading-overlay" class="loading-overlay hidden"><div class="spinner"></div></div>
 
-<script src="app.js?v=82"></script>
+<script src="hours-safety.js?v=83"></script>
+<script src="app.js?v=83"></script>
 <!-- לוח שנה מאוחד - חייב להיטען אחרי app.js, כי הוא דורס בו פונקציות -->
-<script src="calendar-unified.js?v=82"></script>
+<script src="calendar-unified.js?v=83"></script>
 <!-- תיקוני פריסה - חייב להיטען אחרון -->
-<script src="ui-layout.js?v=82"></script>
+<script src="ui-layout.js?v=83"></script>
 </body>
 </html>
