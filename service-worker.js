@@ -88,12 +88,14 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-const CACHE_NAME = 'ds102-shell-v73';
+const CACHE_NAME = 'ds102-shell-v79';
 const SHELL_FILES = [
   './',
   './index.html',
   './style.css',
   './app.js',
+  './calendar-unified.js?v=79',
+  './ui-layout.js?v=79',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png'
@@ -112,13 +114,13 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+      Promise.all(keys.filter((k) => k.startsWith('ds102-shell-') && k !== CACHE_NAME).map((k) => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
 });
 
 // בקשות: API (Google Apps Script) - תמיד רשת ישירה, לעולם לא מהמטמון.
-// קבצים סטטיים - cache-first עם נפילה חזרה לרשת, ועדכון המטמון ברקע.
+// קבצים סטטיים - גרסה עדכנית מהרשת, עם גיבוי מקומי כשאין חיבור.
 self.addEventListener('fetch', (event) => {
   const url = event.request.url;
 
@@ -146,18 +148,22 @@ self.addEventListener('fetch', (event) => {
   } catch (e) {
     return;
   }
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const networkFetch = fetch(event.request)
-        .then((response) => {
-          if (response && response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || networkFetch;
-    })
-  );
+  // Fresh app files online, current app cache only when offline.
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    const fallback = async () => (await cache.match(event.request)) ||
+      (event.request.mode === 'navigate' ? await cache.match('./index.html') : undefined);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    try {
+      const response = await fetch(event.request, { cache: 'no-cache', signal: controller.signal });
+      if (response && response.ok) {
+        await cache.put(event.request, response.clone()).catch(() => {});
+        return response;
+      }
+      return (await fallback()) || response;
+    } catch (e) {
+      return (await fallback()) || Response.error();
+    } finally { clearTimeout(timer); }
+  })());
 });

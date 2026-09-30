@@ -41,7 +41,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v73';
+const APP_VERSION = 'v79';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -131,45 +131,66 @@ function setLoading(on) {
 // ---------------------------------------------------------------------
 // שכבת API
 // ---------------------------------------------------------------------
+// Bounded requests; never retry writes automatically after an uncertain response.
+async function apiRequest(url, options) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60000);
+  try {
+    let res;
+    try {
+      res = await fetch(url, { ...options, cache: 'no-store', credentials: 'omit', signal: controller.signal });
+    } catch (cause) {
+      const error = new Error(controller.signal.aborted
+        ? 'השרת לא השיב בזמן. ייתכן שהפעולה התקבלה; יש לבדוק את הדיווח לפני שליחה חוזרת.'
+        : 'לא ניתן להתחבר לשרת. בדוק את החיבור ונסה שוב. דיווחים ממתינים נשמרים במכשיר.');
+      error.networkFailure = !controller.signal.aborted;
+      throw error;
+    }
+    if (!res.ok) {
+      const messages = {
+        403: 'הגישה לשרת נחסמה (403). פנה למנהל לבדיקת הרשאות הפריסה. דיווחים ממתינים נשמרים במכשיר.',
+        404: 'כתובת השרת אינה זמינה (404). פנה למנהל לבדיקת הפריסה. דיווחים ממתינים נשמרים במכשיר.',
+        429: 'השרת עמוס כרגע (429). המתן מעט ונסה שוב. דיווחים ממתינים נשמרים במכשיר.'
+      };
+      const error = new Error(messages[res.status] || 'שגיאת שרת (' + res.status + '). דיווחים ממתינים נשמרים במכשיר.');
+      error.httpStatus = res.status;
+      throw error;
+    }
+    let result;
+    try { result = await res.json(); }
+    catch (cause) { throw new Error('השרת החזיר תשובה לא תקינה. פנה למנהל לבדיקת החיבור והרשאות הפריסה.'); }
+    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+      throw new Error('השרת החזיר תשובה לא תקינה. הדיווחים הממתינים נשמרו.');
+    }
+    return result;
+  } finally { clearTimeout(timer); }
+}
 async function apiGet(action, params = {}) {
   const url = new URL(CONFIG.API_URL);
   url.searchParams.set('action', action);
   Object.keys(params).forEach(k => {
     if (params[k] !== undefined && params[k] !== null) url.searchParams.set(k, params[k]);
   });
-  // מונע מהדפדפן להחזיר תשובה שמורה במטמון לבקשת GET זהה - בלי זה,
-  // פעולות כמו "סמן כטופל" יכלו להיראות "לא עובדות" למרות שהשרת
-  // בפועל עדכן נכון, כי הרענון שאחריהן קיבל תשובה ישנה מהמטמון.
   url.searchParams.set('_t', Date.now());
-  let res;
-  try {
-    res = await fetch(url.toString(), { method: 'GET', cache: 'no-store' });
-  } catch (e) {
-    // "Failed to fetch" הוא כשל רשת אמיתי - הבקשה לא הגיעה לשרת בכלל.
-    // הסיבות השכיחות: אין חיבור, או Service Worker ישן שתקוע.
-    throw new Error('אין חיבור לשרת. בדוק אינטרנט, ואם הבעיה נמשכת לחץ על כפתור הרענון המלא במסך הכניסה.');
+  try { return await apiRequest(url.toString(), { method: 'GET' }); }
+  catch (error) {
+    // Google can return 404 on its temporary content redirect even while /exec is live.
+    // Retry once from /exec, only for known reads. Never replay exports/imports or POST.
+    const safeReads = new Set(['ping', 'login', 'bootstrap', 'listShifts', 'getMonthlyTotal',
+      'listMonthsWithData', 'listMyPersonalAlerts', 'listMyUrgentCalls', 'listMyMissedPunchReports',
+      'getMyShortcuts', 'listMyEvents', 'listGuardEvents', 'listMyGuardEvents']);
+    if (error.httpStatus !== 404 || !safeReads.has(action)) throw error;
+    url.searchParams.set('_t', Date.now() + '-retry');
+    return apiRequest(url.toString(), { method: 'GET' });
   }
-  if (!res.ok) {
-    // 404 כמעט תמיד אומר שכתובת ה-API עצמה שגויה או שהפריסה הוחלפה,
-    // ולא שהפעולה נכשלה. הודעה מפורשת חוסכת חיפוש מיותר.
-    if (res.status === 404) {
-      throw new Error('כתובת השרת לא נמצאה (404). ייתכן שנוצרה פריסה חדשה - יש לעדכן את API_URL.');
-    }
-    throw new Error('שגיאת שרת (' + res.status + ')');
-  }
-  return res.json();
 }
-
 async function apiPost(action, params = {}) {
-  const res = await fetch(CONFIG.API_URL, {
+  return apiRequest(CONFIG.API_URL, {
     method: 'POST',
-    // חשוב: text/plain ולא application/json - כדי למנוע preflight (OPTIONS)
-    // ש-Apps Script לא יודע לטפל בו. השרת (Api.gs) מפרסר JSON בכל מקרה.
+    // text/plain avoids an unsupported Apps Script OPTIONS preflight.
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify({ action, ...params })
   });
-  if (!res.ok) throw new Error('שגיאת שרת (' + res.status + ')');
-  return res.json();
 }
 
 // silent=true מבצע את הקריאה בלי להדליק את שכבת הטעינה. זה מה
@@ -322,7 +343,7 @@ $('login-form').addEventListener('submit', async (e) => {
     if (result.valid) {
       enterApp(result.code || code, result.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr);
     } else {
-      $('login-error').textContent = 'קוד לא תקין';
+      $('login-error').textContent = result.message || 'קוד לא תקין';
       $('login-error').classList.remove('hidden');
     }
   } catch (err) {
@@ -351,7 +372,7 @@ $('admin-login-form').addEventListener('submit', async (e) => {
   try {
     const result = await callApi('GET', 'login', { code });
     if (!result.valid) {
-      errBox.textContent = 'קוד לא תקין';
+      errBox.textContent = result.message || 'קוד לא תקין';
       errBox.classList.remove('hidden');
       return;
     }
@@ -1602,16 +1623,19 @@ const OFFLINE_QUEUE_KEY = 'ds102_offline_queue';
 // סטנדרטיים) לבין שגיאה תקינה שהשרת החזיר בפועל (למשל נימוק חסר) -
 // רק את הראשון תורים, את השני מציגים למשתמש כרגיל כדי שיתקן.
 function isNetworkError(err) {
-  return !navigator.onLine || err instanceof TypeError;
+  return !!(err && err.networkFailure) || !navigator.onLine || err instanceof TypeError;
 }
 
 function getOfflineQueue() {
   try {
-    return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
+    const queue = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
+    if (!Array.isArray(queue)) throw new Error('invalid queue');
+    return queue;
   } catch (e) {
-    return [];
+    throw new Error('לא ניתן לקרוא את הדיווחים הממתינים. הנתונים נשמרו; פנה למנהל ואל תנקה נתוני אתר.');
   }
 }
+
 function saveOfflineQueueRaw(queue) {
   localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
   updateOfflineQueueBanner();
@@ -1624,36 +1648,56 @@ function queueOfflineAction(action, params) {
 function updateOfflineQueueBanner() {
   const banner = $('offline-queue-banner');
   if (!banner) return;
-  const queue = getOfflineQueue();
-  if (queue.length === 0) {
-    banner.classList.add('hidden');
-  } else {
+  let queue;
+  try { queue = getOfflineQueue(); }
+  catch (error) {
     banner.classList.remove('hidden');
-    banner.textContent = queue.length + ' דיווחים ממתינים לסנכרון - יישלחו אוטומטית כשהחיבור יחזור';
+    banner.textContent = error.message;
+    return;
+  }
+  if (queue.length === 0) { banner.classList.add('hidden'); }
+  else {
+    banner.classList.remove('hidden');
+    banner.textContent = queue.length + ' דיווחים ממתינים לסנכרון - נשמרים במכשיר עד אישור מהשרת';
   }
 }
 
+let offlineFlushRunning = false;
 async function flushOfflineQueue() {
-  const queue = getOfflineQueue();
-  if (queue.length === 0 || !navigator.onLine) return;
-  const remaining = [];
+  if (offlineFlushRunning || !navigator.onLine) return;
+  offlineFlushRunning = true;
   let syncedCount = 0;
-
-  for (const item of queue) {
-    try {
-      await callApi('POST', item.action, item.params);
-      syncedCount++;
-    } catch (err) {
-      if (isNetworkError(err)) {
-        remaining.push(item); // עדיין אין רשת בפועל - משאירים בתור לניסיון הבא
+  async function synchronize() {
+    // Snapshot bounds this run. Re-read storage before removing each acknowledged item
+    // so reports added during the request are preserved.
+    const pending = getOfflineQueue();
+    for (const item of pending) {
+      const key = JSON.stringify(item);
+      if (!getOfflineQueue().some(entry => JSON.stringify(entry) === key)) continue;
+      const result = await callApi('POST', item.action, item.params, true);
+      if (!result || result.success !== true) throw new Error('לא התקבל אישור שמירה מהשרת. הדיווח נשאר במכשיר.');
+      const current = getOfflineQueue();
+      const index = current.findIndex(entry => JSON.stringify(entry) === key);
+      if (index !== -1) {
+        current.splice(index, 1);
+        saveOfflineQueueRaw(current);
       }
-      // שגיאה תקינה מהשרת (לא רשת) - לא ננסה שוב לבד, כדי לא להציף
-      // בכשלונות חוזרים על אותה בעיה (למשל נימוק חסר). פשוט מוותרים
-      // על הפריט הזה בשקט - זה מקרה נדיר וקצה, לא שכיח.
+      syncedCount++;
     }
   }
-
-  saveOfflineQueueRaw(remaining);
+  try {
+    if (navigator.locks && navigator.locks.request) {
+      await navigator.locks.request('ds102-report-sync', { ifAvailable: true }, async lock => {
+        if (lock) await synchronize();
+      });
+    } else { await synchronize(); }
+  } catch (err) {
+    // Preserve the failed report and everything after it, including validation/HTTP errors.
+    showToast('הסנכרון נעצר. הדיווחים שלא אושרו נשמרו במכשיר. ' + (err.message || ''), 7000);
+  } finally {
+    offlineFlushRunning = false;
+    updateOfflineQueueBanner();
+  }
   if (syncedCount > 0) {
     showToast(syncedCount + ' דיווחים סונכרנו בהצלחה');
     refreshMonth();
@@ -3976,8 +4020,7 @@ async function loadBootstrap() {
 //  קבצים ותשובות שמורות ולהיראות "תקוע" או להחזיר 404. במקום להדריך
 //  39 אנשים בטלפון איך מוחקים נתוני אתר - כפתור אחד עושה הכל.
 //
-//  הכפתור בולט בכוונה, אבל האישור מזהיר במפורש אם יש דיווחים
-//  שממתינים לשליחה - ניקוי ימחק אותם, וזה הנזק היחיד האפשרי כאן.
+//  הרענון מחליף קבצי אפליקציה בלבד. דיווחים ממתינים והתחברות נשמרים.
 
 function buildClearCacheButton() {
   const anchor = document.getElementById('version-indicator');
@@ -3996,7 +4039,7 @@ function buildClearCacheButton() {
     'font-family:inherit;cursor:pointer;line-height:1.4';
 
   const hint = document.createElement('div');
-  hint.textContent = 'מוחק את הזיכרון המקומי וטוען מחדש את הגרסה העדכנית';
+  hint.textContent = 'טוען גרסה עדכנית ושומר על הדיווחים וההתחברות';
   hint.style.cssText = 'text-align:center;font-size:12.5px;color:#777;margin-top:6px';
 
   wrap.appendChild(btn);
@@ -4007,54 +4050,23 @@ function buildClearCacheButton() {
 }
 
 async function clearAppCacheAndReload() {
-  // אזהרה על דיווחים שממתינים לשליחה - זה הדבר היחיד שהניקוי יכול
-  // להרוס, ולכן הוא מוצג במפורש ולא נקבר בטקסט כללי.
-  let pending = 0;
-  try {
-    pending = JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]').length;
-  } catch (e) { pending = 0; }
-
-  let msg = 'לרענן את האפליקציה מחדש?\n\nהפעולה תמחק את הזיכרון המקומי ' +
-    'ותטען את הגרסה העדכנית. תצטרך להזין את הקוד האישי שוב.';
-  if (pending > 0) {
-    msg = '⚠️ שים לב: יש ' + pending + ' דיווחים שממתינים לשליחה, והם יימחקו!\n\n' +
-      'עדיף להתחבר לאינטרנט ולחכות שיישלחו לפני שמנקים.\n\nלהמשיך בכל זאת?';
-  }
-  if (!confirm(msg)) return;
-
+  if (!confirm('לטעון מחדש את האפליקציה? דיווחים ממתינים, נתונים שמורים וההתחברות יישמרו.')) return;
   const btn = document.getElementById('clear-cache-btn');
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = 'מנקה...';
-  }
-
-  // 1. הסרת כל ה-Service Workers הרשומים
+  if (btn) { btn.disabled = true; btn.textContent = 'מרענן...'; }
+  const appRoot = new URL('./', document.baseURI).href;
   try {
     if ('serviceWorker' in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map(r => r.unregister()));
+      await Promise.all(regs.filter(r => r.scope === appRoot).map(r => r.unregister()));
     }
-  } catch (e) { /* ממשיכים לשלבים הבאים */ }
-
-  // 2. מחיקת כל המטמונים
+  } catch (e) { /* Reload can still continue. */ }
   try {
     if ('caches' in window) {
       const keys = await caches.keys();
-      await Promise.all(keys.map(k => caches.delete(k)));
+      await Promise.all(keys.filter(k => k.startsWith('ds102-shell-')).map(k => caches.delete(k)));
     }
-  } catch (e) { /* ממשיכים */ }
-
-  // 3. ניקוי האחסון המקומי
-  try { localStorage.clear(); } catch (e) {}
-  try { sessionStorage.clear(); } catch (e) {}
-
-  // 4. טעינה מחדש עם פרמטר ייחודי, כדי שגם הדפדפן עצמו לא יגיש
-  //    את ה-HTML מהמטמון שלו
-  // תמיד חוזרים לשורש האפליקציה ולא לקובץ שממנו הגענו. אם המשתמש
-  // הגיע במקרה לכתובת של קובץ בודד, רענון "במקום" היה משאיר אותו שם.
-  let base = location.origin + location.pathname;
-  base = base.replace(/[^/]*$/, '');
-  location.replace(base + '?fresh=' + Date.now());
+  } catch (e) { /* Keep all report and session storage intact. */ }
+  location.replace(appRoot + '?fresh=' + Date.now());
 }
 
 document.addEventListener('DOMContentLoaded', buildClearCacheButton);
