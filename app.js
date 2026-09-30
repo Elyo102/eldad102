@@ -41,7 +41,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v79';
+const APP_VERSION = 'v80';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -159,13 +159,26 @@ async function apiRequest(url, options) {
     let result;
     try { result = await res.json(); }
     catch (cause) { throw new Error('השרת החזיר תשובה לא תקינה. פנה למנהל לבדיקת החיבור והרשאות הפריסה.'); }
-    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+    if (!result || typeof result !== 'object') {
       throw new Error('השרת החזיר תשובה לא תקינה. הדיווחים הממתינים נשמרו.');
     }
     return result;
   } finally { clearTimeout(timer); }
 }
-async function apiGet(action, params = {}) {
+// Share simultaneous reads only; never cache completed data or merge writes.
+const apiReadsInFlight = new Map();
+function apiGet(action, params = {}) {
+  const canShare = /^(list|get|checkMyData)/.test(action) || action === 'bootstrap' || action === 'ping';
+  if (!canShare) return apiGetFresh(action, params);
+  const key = JSON.stringify([action, Object.keys(params).sort().map(k => [k, params[k]])]);
+  if (apiReadsInFlight.has(key)) return apiReadsInFlight.get(key);
+  const request = apiGetFresh(action, params).finally(() => {
+    if (apiReadsInFlight.get(key) === request) apiReadsInFlight.delete(key);
+  });
+  apiReadsInFlight.set(key, request);
+  return request;
+}
+async function apiGetFresh(action, params = {}) {
   const url = new URL(CONFIG.API_URL);
   url.searchParams.set('action', action);
   Object.keys(params).forEach(k => {
@@ -185,6 +198,7 @@ async function apiGet(action, params = {}) {
   }
 }
 async function apiPost(action, params = {}) {
+  apiReadsInFlight.clear(); // A refresh after a write must not reuse a pre-write read.
   return apiRequest(CONFIG.API_URL, {
     method: 'POST',
     // text/plain avoids an unsupported Apps Script OPTIONS preflight.
@@ -1163,7 +1177,10 @@ function monthKeyOf(date) {
   return `${y}-${m}`;
 }
 
+let monthLoadSequence = 0;
 async function refreshMonth() {
+  const requestId = ++monthLoadSequence;
+  const code = state.code;
   const monthKey = monthKeyOf(state.currentMonth);
   $('month-label').textContent = `${MONTH_NAMES[state.currentMonth.getMonth()]} ${state.currentMonth.getFullYear()}`;
 
@@ -1177,6 +1194,7 @@ async function refreshMonth() {
     // חוסך בקשה שלמה לשרת בכל טעינת מסך/מעבר חודש.
     // אם כבר הצגנו מהמטמון - הרענון שקט, בלי עיגול טעינה על המסך
     const shifts = await callApi('GET', 'listShifts', { code: state.code, monthKey }, hadCache);
+    if (requestId !== monthLoadSequence || code !== state.code || monthKey !== monthKeyOf(state.currentMonth)) return;
     state.shifts = Array.isArray(shifts) ? shifts : (shifts.shifts || []);
     state.shifts.sort((a, b) => (a.dateStr || '').localeCompare(b.dateStr || ''));
     saveMonthToCache(monthKey, state.shifts);
@@ -1185,7 +1203,7 @@ async function refreshMonth() {
     const total = state.shifts.reduce((sum, s) => sum + (Number(s.hours) || 0), 0);
     $('month-total').textContent = Math.round(total * 100) / 100;
   } catch (err) {
-    if (!hadCache) showToast(err.message || 'שגיאה בטעינת החודש');
+    if (requestId === monthLoadSequence && code === state.code && !hadCache) showToast(err.message || 'שגיאה בטעינת החודש');
   }
 }
 
@@ -3985,12 +4003,14 @@ function renderMonthFromCache() {
 }
 
 async function loadBootstrap() {
+  const requestId = ++monthLoadSequence;
+  const code = state.code;
   const monthKey = monthKeyOf(state.currentMonth);
   try {
     const res = await apiGet('bootstrap', { code: state.code, monthKey });
-    if (!res || res.valid === false) return;
+    if (!res || res.valid === false || code !== state.code) return;
 
-    if (Array.isArray(res.shifts)) {
+    if (Array.isArray(res.shifts) && requestId === monthLoadSequence && monthKey === monthKeyOf(state.currentMonth)) {
       state.shifts = res.shifts;
       state.shifts.sort((a, b) => (a.dateStr || '').localeCompare(b.dateStr || ''));
       saveMonthToCache(monthKey, state.shifts);
@@ -5247,7 +5267,7 @@ async function openUrgentStatusModal(callId) {
       urgentPollInterval = null;
       return;
     }
-    drawUrgentStatus(callId);
+    if (!document.hidden) drawUrgentStatus(callId);
   }, 15000);
 }
 

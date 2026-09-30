@@ -45,6 +45,9 @@
     { id: 'shorts',  label: 'קיצורי דרך',   icon: 'ti-star',    color: SHORT }
   ];
 
+  var COLLAPSE_KEY = 'ds102_side_tabs_collapsed';
+  var tabsCollapsed = false;
+  try { tabsCollapsed = localStorage.getItem(COLLAPSE_KEY) === '1'; } catch (e) {}
   var TAB_H = 96;
   var TAB_GAP = 8;
   var TAB_BOTTOM = 90;
@@ -83,6 +86,10 @@
       '  writing-mode: vertical-rl; text-orientation: mixed;',
       '}',
       '.ds-tab:active { transform: scale(.94); }',
+      'html body.ds-tabs-collapsed .ds-tab { display: none !important; }',
+      '#ds-tabs-toggle { position: fixed; right: 0; bottom: calc(28px + env(safe-area-inset-bottom, 0px)); z-index: 960; min-width: 44px; min-height: 44px; border: 1px solid #ccc; border-radius: 14px 0 0 14px; background: #fff; color: #333; font-family: inherit; font-size: 12px; font-weight: 600; padding: 8px; cursor: pointer; box-shadow: -2px 1px 8px #0002; }',
+      '.ds-tabs-hidden #ds-tabs-toggle { visibility: hidden; }',
+      '#ds-tabs-toggle:focus-visible { outline: 3px solid #1860ad; outline-offset: 2px; }',
       '.ds-tabs-hidden .ds-tab { opacity: 0; pointer-events: none; }',
 
       '#ds-scrim2 {',
@@ -168,6 +175,18 @@
       document.body.appendChild(btn);
     });
 
+    var toggle = document.createElement('button');
+    toggle.id = 'ds-tabs-toggle';
+    toggle.type = 'button';
+    toggle.setAttribute('aria-controls', TABS.map(function(t) { return 'ds-tab-' + t.id; }).join(' '));
+    toggle.addEventListener('click', function () {
+      tabsCollapsed = !tabsCollapsed;
+      try { localStorage.setItem(COLLAPSE_KEY, tabsCollapsed ? '1' : '0'); } catch (e) {}
+      closeSheet();
+      boot();
+    });
+    document.body.appendChild(toggle);
+
     var scrim = document.createElement('div');
     scrim.id = 'ds-scrim2';
     scrim.addEventListener('click', closeSheet);
@@ -204,15 +223,22 @@
     document.getElementById('ds-sheet').classList.add('show');
     document.getElementById('ds-scrim2').classList.add('show');
     document.body.classList.add('ds-tabs-hidden');
+    var close = document.querySelector('#ds-sheet .ds-sheet-close');
+    if (close) close.focus();
   }
 
   function closeSheet() {
+    var previousTab = openTab;
     openTab = null;
     var sheet = document.getElementById('ds-sheet');
     var scrim = document.getElementById('ds-scrim2');
     if (sheet) sheet.classList.remove('show');
     if (scrim) scrim.classList.remove('show');
     document.body.classList.remove('ds-tabs-hidden');
+    if (previousTab) {
+      var trigger = document.getElementById(tabsCollapsed ? 'ds-tabs-toggle' : 'ds-tab-' + previousTab);
+      if (trigger) trigger.focus();
+    }
   }
 
   // -------------------------------------------------------------------
@@ -410,6 +436,15 @@
       el.style.display = show ? 'flex' : 'none';
     });
 
+    document.body.classList.toggle('ds-tabs-collapsed', tabsCollapsed);
+    var toggle = document.getElementById('ds-tabs-toggle');
+    if (toggle) {
+      toggle.hidden = !(loggedIn && onAppScreen);
+      toggle.textContent = tabsCollapsed ? '☰ פתח' : 'כווץ ›';
+      toggle.setAttribute('aria-expanded', String(!tabsCollapsed));
+      toggle.setAttribute('aria-label', tabsCollapsed ? 'הרחב תפריט צדדי' : 'כווץ תפריט צדדי');
+      toggle.title = tabsCollapsed ? 'הרחב תפריט צדדי' : 'כווץ תפריט צדדי';
+    }
     reflowTabs();
   }
 
@@ -451,6 +486,9 @@
     });
   }
 
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && openTab) closeSheet();
+  });
   document.addEventListener('DOMContentLoaded', boot);
   boot();
 })();

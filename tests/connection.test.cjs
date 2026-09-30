@@ -80,7 +80,7 @@ function swContext(fetch,match) {
  const handlers={},removed=[];
  const c={URL,Response,AbortController,setTimeout,clearTimeout,importScripts(){},firebase:{initializeApp(){},messaging:()=>({onBackgroundMessage(){}})},
  self:{location:{origin:'https://elyo102.github.io'},addEventListener:(n,f)=>handlers[n]=f,clients:{claim:async()=>{}}},
- caches:{keys:async()=>['ds102-shell-v73','ds102-shell-v79','other-cache'],delete:async k=>removed.push(k),open:async()=>({match,put:async()=>{}})},fetch};
+ caches:{keys:async()=>['ds102-shell-v73',swSource.match(/ds102-shell-v\d+/)[0],'other-cache'],delete:async k=>removed.push(k),open:async()=>({match,put:async()=>{}})},fetch};
  vm.createContext(c);vm.runInContext(swSource,c);return {handlers,removed};
 }
 test('offline navigation with fresh query gets cached application shell',async()=>{
@@ -98,4 +98,21 @@ test('current app files are served from network instead of stale cache',async()=
 });
 test('corrupt saved queue does not crash application startup or synchronization',async()=>{
  const {c,data}=setup();data.set('ds102_offline_queue','damaged');assert.doesNotThrow(()=>c.updateOfflineQueueBanner());await c.flushOfflineQueue();assert.equal(data.get('ds102_offline_queue'),'damaged');
+});
+test('array responses used by listShifts remain valid',async()=>{
+ const c=apiContext(async()=>({ok:true,json:async()=>[{dateStr:'test',hours:12}]}));const result=await c.apiGet('listShifts');assert.equal(result[0].hours,12);
+});
+test('three overlapping identical reads use one request and later reads are fresh',async()=>{
+ let calls=0,release;const c=apiContext(async()=>{calls++;await new Promise(r=>release=r);return {ok:true,json:async()=>[]};});
+ const a=c.apiGet('listShifts',{code:'test',monthKey:'2026-09'}),b=c.apiGet('listShifts',{monthKey:'2026-09',code:'test'}),d=c.apiGet('listShifts',{code:'test',monthKey:'2026-09'});assert.equal(calls,1);release();await Promise.all([a,b,d]);const next=c.apiGet('listShifts',{code:'test',monthKey:'2026-09'});assert.equal(calls,2);release();await next;
+});
+test('reads for different months stay separate',async()=>{
+ let calls=0;const c=apiContext(async()=>{calls++;return {ok:true,json:async()=>[]};});await Promise.all([c.apiGet('listShifts',{monthKey:'2026-09'}),c.apiGet('listShifts',{monthKey:'2026-10'})]);assert.equal(calls,2);
+});
+test('a write invalidates a pending read before the next refresh',async()=>{
+ const releases=[];let calls=0;const c=apiContext(async(u,o)=>{if(o.method==='POST')return {ok:true,json:async()=>({success:true})};calls++;await new Promise(r=>releases.push(r));return {ok:true,json:async()=>[]};});const old=c.apiGet('listShifts');await c.apiPost('saveManualShift');const fresh=c.apiGet('listShifts');assert.equal(calls,2);releases.forEach(r=>r());await Promise.all([old,fresh]);
+});
+test('delayed older month cannot replace current month or its cache',async()=>{
+ const pending=[],saved=[]; const state={code:'test',currentMonth:new Date(2026,8,1),shifts:[]};
+ const c={state,MONTH_NAMES:Array(12).fill('month'),$ :()=>({}),monthKeyOf:d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'),renderMonthFromCache:()=>false,callApi:()=>new Promise(r=>pending.push(r)),saveMonthToCache:(k,v)=>saved.push(k),renderShifts(){},renderStatsBreakdown(){},showToast(){}};vm.createContext(c);vm.runInContext(section('let monthLoadSequence = 0;', 'function renderShifts()'),c);const old=c.refreshMonth();state.currentMonth=new Date(2026,9,1);const next=c.refreshMonth();pending[1]([{hours:2,dateStr:'2026-10-01'}]);await next;pending[0]([{hours:9,dateStr:'2026-09-01'}]);await old;assert.equal(state.shifts[0].hours,2);assert.deepEqual(saved,['2026-10']);
 });
