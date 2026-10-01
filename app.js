@@ -41,7 +41,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v85';
+const APP_VERSION = 'v86';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -142,17 +142,17 @@ async function apiRequest(url, options) {
     } catch (cause) {
       const error = new Error(controller.signal.aborted
         ? 'השרת לא השיב בזמן. ייתכן שהפעולה התקבלה; יש לבדוק את הדיווח לפני שליחה חוזרת.'
-        : 'לא ניתן להתחבר לשרת. בדוק את החיבור ונסה שוב. דיווחים ממתינים נשמרים במכשיר.');
+        : 'לא ניתן להתחבר לשרת. בדוק את החיבור ונסה שוב. נסה שוב כשהחיבור זמין.');
       error.networkFailure = !controller.signal.aborted;
       throw error;
     }
     if (!res.ok) {
       const messages = {
-        403: 'הגישה לשרת נחסמה (403). פנה למנהל לבדיקת הרשאות הפריסה. דיווחים ממתינים נשמרים במכשיר.',
-        404: 'כתובת השרת אינה זמינה (404). פנה למנהל לבדיקת הפריסה. דיווחים ממתינים נשמרים במכשיר.',
-        429: 'השרת עמוס כרגע (429). המתן מעט ונסה שוב. דיווחים ממתינים נשמרים במכשיר.'
+        403: 'הגישה לשרת נחסמה (403). פנה למנהל לבדיקת הרשאות הפריסה. נסה שוב כשהחיבור זמין.',
+        404: 'כתובת השרת אינה זמינה (404). פנה למנהל לבדיקת הפריסה. נסה שוב כשהחיבור זמין.',
+        429: 'השרת עמוס כרגע (429). המתן מעט ונסה שוב. נסה שוב כשהחיבור זמין.'
       };
-      const error = new Error(messages[res.status] || 'שגיאת שרת (' + res.status + '). דיווחים ממתינים נשמרים במכשיר.');
+      const error = new Error(messages[res.status] || 'שגיאת שרת (' + res.status + '). נסה שוב כשהחיבור זמין.');
       error.httpStatus = res.status;
       throw error;
     }
@@ -160,7 +160,7 @@ async function apiRequest(url, options) {
     try { result = await res.json(); }
     catch (cause) { throw new Error('השרת החזיר תשובה לא תקינה. פנה למנהל לבדיקת החיבור והרשאות הפריסה.'); }
     if (!result || typeof result !== 'object') {
-      throw new Error('השרת החזיר תשובה לא תקינה. הדיווחים הממתינים נשמרו.');
+      throw new Error('השרת החזיר תשובה לא תקינה. לא התקבל אישור שמירה.');
     }
     return result;
   } finally { clearTimeout(timer); }
@@ -316,7 +316,6 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
     refreshUrgentCalls();
   }
 
-  syncDurableDrafts();
   loadShortcutsFromServer();
   startPersonalAlertsPolling();
 }
@@ -1183,15 +1182,8 @@ function monthKeyOf(date) {
 }
 
 let monthSync = { code: null, month: null, phase: 'loading' };
-let activeDraftId = null;
-let activeDraftVersion;
-let draftAutosave = Promise.resolve();
-let safetyUiSequence = 0;
-let durableSyncRunning = false;
-let shiftSubmissionRunning = false;
 let shiftFormSubmitting = false;
-let draftSession = 0;
-let draftWriteFailed = false;
+let pendingReportOperation = null;
 function setMonthSync(phase, detail) {
   if (monthSync.code !== state.code || monthSync.month !== monthKeyOf(state.currentMonth)) monthSync = { revision: null, dayRevisions: {} };
   monthSync = { ...monthSync, code: state.code, month: monthKeyOf(state.currentMonth), phase };
@@ -1212,49 +1204,8 @@ function setMonthSync(phase, detail) {
   updateReportSafetyUi();
 }
 async function updateReportSafetyUi() {
-  const request = ++safetyUiSequence;
-  const code = state.code;
   const btn = $('confirm-month-btn');
-  let pending = true;
-  if (btn) btn.disabled = true;
-  try { pending = (await HoursSafety.pending(code)).length > 0; } catch (e) {}
-  if (request !== safetyUiSequence || code !== state.code) return;
-  if (btn) btn.disabled = monthSync.phase !== 'ready' || monthSync.code !== state.code || monthSync.month !== monthKeyOf(state.currentMonth) || !/^[a-f0-9]{64}$/.test(monthSync.revision || '') || pending;
-  const box = $('saved-drafts');
-  if (!box) return;
-  box.replaceChildren();
-  try {
-    const entries = await HoursSafety.pending(code);
-    if (request !== safetyUiSequence || code !== state.code) return;
-    box.hidden = entries.length === 0;
-    for (const entry of entries) {
-      const row = document.createElement('div');
-      const label = document.createElement('span');
-      label.textContent = entry.params.dateStr + ' — ' + (entry.status === 'draft' ? 'טיוטה שמורה במכשיר' : 'נשלח; נדרש אימות קבלה לפני ניסיון נוסף');
-      const button = document.createElement('button');
-      button.type = 'button'; button.textContent = 'פתח לבדיקה';
-      button.addEventListener('click', async () => {
-        try {
-        if (entry.status !== 'draft' && !entry.legacy) {
-          await sendDurableDraft(entry.id);
-          const current = await HoursSafety.read(entry.id);
-          if (current.status === 'confirmed') { await refreshMonth(); return; }
-        }
-        let edit = await HoursSafety.read(entry.id);
-        if (edit.status !== 'draft' || !edit.params.expectedRevision) {
-          const date = new Date(edit.params.dateStr + 'T12:00:00');
-          if (!isNaN(date)) state.currentMonth = new Date(date.getFullYear(), date.getMonth(), 1);
-          await refreshMonth();
-          if (monthSync.phase !== 'ready' || !confirm('בדוק את הדיווח שמופיע בחודש לפני עריכה. לפתוח עותק של הטיוטה לעריכה ידנית? המקור יישמר.')) return;
-          edit = await HoursSafety.forkForReview(edit.id, { ...edit.params, expectedRevision: monthSync.dayRevisions && monthSync.dayRevisions[edit.params.dateStr] });
-        }
-        openShiftModal(edit.params.dateStr, edit.params);
-        activeDraftId = edit.id; activeDraftVersion = edit.version;
-        } catch(e) { showToast(e.message || 'לא ניתן לפתוח את הטיוטה. המקור נשמר.'); }
-      });
-      row.append(label, button); box.append(row);
-    }
-  } catch (e) { box.hidden = false; box.textContent = e.message; }
+  if (btn) btn.disabled = monthSync.phase !== 'ready' || monthSync.code !== state.code || monthSync.month !== monthKeyOf(state.currentMonth) || !/^[a-f0-9]{64}$/.test(monthSync.revision || '');
 }
 
 // Highlight a refreshed report only after the server acknowledges its save.
@@ -1508,8 +1459,7 @@ $('shift-workplace').addEventListener('change', () => {
 });
 
 function openShiftModal(dateStr, existing) {
-  draftSession++; draftWriteFailed = false;
-  activeDraftId = null; activeDraftVersion = undefined;
+  pendingReportOperation = null;
   state.editingDateStr = dateStr || null;
   $('shift-form-error').classList.add('hidden');
   $('shift-modal-title').textContent = existing ? 'עריכת דיווח' : 'דיווח חדש';
@@ -1547,8 +1497,6 @@ function defaultNewDate() {
 }
 
 async function closeShiftModal() {
-  await draftAutosave;
-  if (draftWriteFailed) return;
   $('shift-modal').classList.add('hidden');
   document.body.classList.remove('shift-report-open');
   updateReportSafetyUi();
@@ -1557,42 +1505,14 @@ $('close-shift-modal').addEventListener('click', closeShiftModal);
 $('add-shift-btn').addEventListener('click', () => openShiftModal(null, null));
 $('month-sync-retry').addEventListener('click', () => refreshMonth());
 
-function queueShiftDraft() {
-  if (!state.code || shiftFormSubmitting || $('shift-modal').classList.contains('hidden')) return;
-  clearHoursSaveFeedback($('shift-date').value);
-  const session = draftSession;
-  const workplace = $('shift-workplace').value;
-  const params = { code: state.code, dateStr: $('shift-date').value,
-    dayType: $('shift-daytype').value, startTime: $('shift-start').value, endTime: $('shift-end').value,
-    entry2: $('shift-start2').value, exit2: $('shift-end2').value, breakType: $('shift-break-type').value,
-    notes: $('shift-notes').value, workplace: workplace === 'אחר' ? $('shift-workplace-other').value : workplace };
-  const revision = monthSync.code === state.code && monthSync.month === params.dateStr.slice(0,7) ? (monthSync.dayRevisions || {})[params.dateStr] : undefined;
-  draftAutosave = draftAutosave.then(async () => {
-    try {
-      // A queued snapshot belongs to its original form, even if another form was opened.
-      const sameSession = session === draftSession;
-      const previous = sameSession && activeDraftId ? await HoursSafety.read(activeDraftId) : null;
-      if (previous && previous.status !== 'draft') return;
-      params.expectedRevision = previous && previous.params.dateStr === params.dateStr ? previous.params.expectedRevision : revision;
-      const entry = await HoursSafety.save(params, previous && previous.id, previous && activeDraftVersion);
-      if (sameSession) { activeDraftId = entry.id; activeDraftVersion = entry.version; draftWriteFailed = false; }
-      $('confirm-month-btn').disabled = true;
-    } catch (e) {
-      draftWriteFailed = true;
-      $('shift-form-error').textContent = 'הטיוטה לא נשמרה במכשיר: ' + e.message + ' אין לסגור את הטופס.';
-      $('shift-form-error').classList.remove('hidden');
-    }
-  });
-}
-$('shift-form').addEventListener('input', queueShiftDraft);
-$('shift-form').addEventListener('change', queueShiftDraft);
+$('shift-form').addEventListener('input', () => clearHoursSaveFeedback($('shift-date').value));
+$('shift-form').addEventListener('change', () => clearHoursSaveFeedback($('shift-date').value));
 
 $('shift-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (shiftFormSubmitting) return;
   shiftFormSubmitting = true;
   try {
-  await draftAutosave;
   const dateStr = $('shift-date').value;
   const dayType = $('shift-daytype').value;
   const startTime = LOCKED_START_TIME[dayType] || $('shift-start').value;
@@ -1647,29 +1567,23 @@ $('shift-form').addEventListener('submit', async (e) => {
       code: state.code, dateStr, startTime, endTime, notes: notesToSave, dayType, workplace,
       entry2, exit2, breakType
     };
-    const existingDraft = activeDraftId ? await HoursSafety.read(activeDraftId) : null;
-    params.expectedRevision = existingDraft && existingDraft.params.dateStr === dateStr ? existingDraft.params.expectedRevision : (monthSync.code === state.code && monthSync.month === dateStr.slice(0,7) ? (monthSync.dayRevisions || {})[dateStr] : undefined);
-    const draft = await HoursSafety.save(params, activeDraftId, activeDraftVersion);
-    activeDraftId = draft.id;
-    activeDraftVersion = draft.version;
-    await HoursSafety.stage(draft.id, params.expectedRevision);
-    shiftSubmissionRunning = true;
-    updateReportSafetyUi();
-    const result = await sendDurableDraft(draft.id);
-    if (!result || !result.success) throw new Error('הדיווח נשמר במכשיר וממתין לאימות קבלה.');
-    activeDraftId = null;
-    updateReportSafetyUi();
+    const fingerprint = JSON.stringify(params);
+    if (!pendingReportOperation || pendingReportOperation.fingerprint !== fingerprint) {
+      pendingReportOperation = { id: crypto.randomUUID(), fingerprint };
+    }
+    const operationId = pendingReportOperation.id;
+    const result = await callApi('POST', 'saveHoursReport', { ...params, operationId });
+    if (!result || result.success !== true) throw new Error('לא התקבל אישור שמירה מהשרת. נסה לשמור שוב.');
+    acknowledgeHoursSave({ id: operationId, params }, result);
+    pendingReportOperation = null;
     showToast(result.message || 'נשמר בהצלחה');
     closeShiftModal();
     await refreshMonthKeepingSelection(dateStr);
   } catch (err) {
-    if (activeDraftId) {
-      try { const draft = await HoursSafety.read(activeDraftId); if (draft && draft.status === 'sending') await HoursSafety.mark(activeDraftId, 'uncertain', err.message); } catch (storageError) {}
-    }
-    errBox.textContent = (err.message || 'שגיאה בשמירה') + ' הטופס נשאר פתוח. בדוק את אזור הטיוטות לפני ניסיון נוסף.';
+    if (['OPERATION_MISMATCH','REVIEW_REQUIRED','CONFLICT'].includes(err.serverCode)) pendingReportOperation = null;
+    errBox.textContent = (err.message || 'השמירה לא הושלמה') + ' הטופס נשאר פתוח. אפשר לנסות לשמור שוב.';
     errBox.classList.remove('hidden');
-    updateReportSafetyUi();
-  } finally { shiftSubmissionRunning = false; }
+  }
   } finally { shiftFormSubmitting = false; }
 });
 
@@ -1847,44 +1761,6 @@ function updateOfflineQueueBanner() {
   }
 }
 
-async function sendDurableDraft(id) {
-  const entry = await HoursSafety.claim(id);
-  if (!entry) { updateReportSafetyUi(); return null; }
-  try {
-    const receipt = entry.needsReceiptCheck ? await callApi('GET', 'getHoursSaveReceipt', { code: entry.params.code, operationId: entry.id }, true) : { state: 'NOT_FOUND' };
-    let result = receipt.state === 'APPLIED' ? receipt.result : null;
-    if (!result) result = await callApi('POST', 'saveManualShiftOnce', { ...entry.params, operationId: entry.id, expectedRevision: entry.expectedRevision }, true);
-    if (!result || result.success !== true) throw new Error('לא התקבלה קבלת שמירה תקינה.');
-    await HoursSafety.mark(id, 'confirmed');
-    acknowledgeHoursSave(entry, result);
-    return result;
-  } catch (error) {
-    await HoursSafety.mark(id, ['CONFLICT','OPERATION_MISMATCH','REVIEW_REQUIRED'].includes(error.serverCode) ? 'review' : 'uncertain', error.message);
-    showToast(error.message || 'הדיווח נשמר במכשיר וממתין לאימות.', 7000);
-    return null;
-  } finally { updateReportSafetyUi(); }
-}
-async function syncDurableDrafts() {
-  if (durableSyncRunning || !state.code || !navigator.onLine) return;
-  durableSyncRunning = true;
-  const code = state.code;
-  let saved = false;
-  try {
-    const entries = await HoursSafety.pending(state.code);
-    const blockedDates = new Set();
-    for (const entry of entries) {
-      if (blockedDates.has(entry.params.dateStr)) continue;
-      if (['queued','uncertain','sending'].includes(entry.status)) {
-        const result = await sendDurableDraft(entry.id);
-        if (!result || !result.success) blockedDates.add(entry.params.dateStr);
-        else saved = true;
-      } else blockedDates.add(entry.params.dateStr);
-    }
-  } catch(e) { showToast(e.message || 'הטיוטות נשמרו לבדיקה.'); }
-  finally { durableSyncRunning = false; updateReportSafetyUi(); }
-  if (saved && code === state.code) await refreshMonth(true);
-}
-
 let offlineFlushRunning = false;
 async function flushOfflineQueue() {
   if (offlineFlushRunning || !navigator.onLine) return;
@@ -1927,7 +1803,6 @@ async function flushOfflineQueue() {
   }
 }
 
-window.addEventListener('online', syncDurableDrafts);
 updateOfflineQueueBanner(); // בכל טעינת האפליקציה - מציג אם יש פעולות ממתינות משבתחילה
 
 // ---------------------------------------------------------------------

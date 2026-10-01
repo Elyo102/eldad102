@@ -23,7 +23,6 @@
 <body translate="no">
 
 <div id="offline-banner" class="offline-banner hidden">אין חיבור לאינטרנט - חלק מהפעולות לא יעבדו</div>
-<div id="offline-queue-banner" class="offline-banner hidden" style="background:#d38b00"></div>
 
 <!-- ===================== מסך כניסה ===================== -->
 <section id="screen-login" class="screen">
@@ -200,7 +199,6 @@
       <div id="stats-breakdown-rows"></div>
     </div>
     <div id="month-sync-status" role="status" aria-live="polite"><span data-status-text>טוען את דיווחי החודש…</span><button type="button" id="month-sync-retry">נסה שוב</button></div>
-    <div id="saved-drafts" hidden aria-label="דיווחים שמורים במכשיר"></div>
     <div id="shifts-list" class="shifts-list"></div>
     <div id="shifts-empty" class="empty-state hidden">אין דיווחים לחודש הזה עדיין</div>
   </main>
@@ -834,11 +832,10 @@
 <div id="toast" class="toast hidden"></div>
 <div id="loading-overlay" class="loading-overlay hidden"><div class="spinner"></div></div>
 
-<script src="hours-safety.js?v=85"></script>
-<script src="app.js?v=85"></script>
+<script src="app.js?v=86"></script>
 <!-- לוח שנה מאוחד - חייב להיטען אחרי app.js, כי הוא דורס בו פונקציות -->
-<script src="calendar-unified.js?v=85"></script>
+<script src="calendar-unified.js?v=86"></script>
 <!-- תיקוני פריסה - חייב להיטען אחרון -->
-<script src="ui-layout.js?v=85"></script>
+<script src="ui-layout.js?v=86"></script>
 </body>
 </html>
