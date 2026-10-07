@@ -1,32 +1,58 @@
-/* Admin bulk import: sequential per-user requests, no reset and no automatic retry. */
-let allRosterRunning = false;
-async function loadRosterForEveryone() {
-  if(allRosterRunning || !state.isAdmin || state.viewAs)return;
+/* The server owns the durable import; this screen only starts and observes it. */
+let allRosterRunning=false, rosterPoll=null, rosterOperation=null;
+function renderRosterJob(job){
+  const box=$('admin-roster-results'),button=$('admin-roster-load');box.hidden=false;
+  if(!job){box.textContent='אין טעינה פעילה.';button.disabled=false;return;}
+  const finished=job.users.filter(u=>['done','failed'].includes(u.state)).length;
+  const failed=job.users.filter(u=>u.state==='failed').length;
+  const added=job.users.reduce((n,u)=>n+(u.added||0),0);
+  button.disabled=job.state==='running';
+  box.textContent='חודש '+job.monthKey+' — '+finished+'/'+job.users.length+' הושלמו; נוספו '+added+' משמרות. '+
+    (job.state==='running'?'הטעינה מתבצעת בשרת. אפשר לצאת מהמסך.':job.state==='paused'?'הטעינה הופסקה כי התחלף החודש.':'הטעינה הסתיימה; '+failed+' לא הושלמו.')+'\n'+
+    job.users.map(u=>(u.state==='done'?(u.issues.length?'⚠ ':'✓ '):u.state==='failed'?'✗ ':'◷ ')+u.name+': '+
+      (u.state==='pending'?'ממתין':u.state==='running'?'בטעינה':u.state==='retry'?'ממתין לניסיון נוסף':u.message)+
+      (u.issues.length?' '+u.issues.join('; '):'')).join('\n');
+}
+function scheduleRosterPoll(code){
+  clearTimeout(rosterPoll);
+  rosterPoll=setTimeout(()=>{if(state.code===code&&state.isAdmin&&!state.viewAs)refreshRosterJob();},15000);
+}
+async function refreshRosterJob(){
+  if(!state.isAdmin||state.viewAs)return;
+  const code=state.code;
+  try{
+    const result=await callApi('GET','getBulkRosterStatus',{code},true);
+    if(state.code!==code||!state.isAdmin||state.viewAs)return;
+    renderRosterJob(result.job);
+    if(result.job?.state==='running')scheduleRosterPoll(code);
+  }catch(e){
+    if(state.code!==code)return;
+    $('admin-roster-results').hidden=false;
+    $('admin-roster-results').textContent='לא ניתן לקרוא כרגע את ההתקדמות. המשימה בשרת ממשיכה; מנסה שוב. '+e.message;
+    scheduleRosterPoll(code);
+  }
+}
+async function loadRosterForEveryone(){
+  if(allRosterRunning||!state.isAdmin||state.viewAs)return;
+  if(!confirm('להשלים משמרות חסרות בחודש הנוכחי לכל הכבאים? דיווחים קיימים וחודשים קודמים יישמרו.'))return;
   const code=state.code,box=$('admin-roster-results'),button=$('admin-roster-load');
-  if(!confirm('לטעון את החודש הנוכחי לכל הכבאים הפעילים? יתווספו רק משמרות חסרות. דיווחים ידניים וחודשים קודמים יישמרו.'))return;
-  allRosterRunning=true;button.disabled=true;box.hidden=false;box.textContent='בודק את רשימת המשתמשים…';
-  const lines=[];let added=0,checked=0,failed=0;
-  try {
-    if(getOfflineQueue().length || pendingReportOperation || shiftFormSubmitting)throw Error('יש להשלים דיווחים ממתינים לפני הטעינה');
-    const targets=await callApi('GET','adminScheduleImportTargets',{code});
-    if(!targets.success || !Array.isArray(targets.users))throw Error('לא התקבלה רשימת משתמשים');
-    for(const user of targets.users){
-      if(state.code!==code || !state.isAdmin)throw Error('הטעינה נעצרה עקב שינוי חשבון. המשמרות שכבר נטענו נשמרו.');
-      box.textContent='חודש '+targets.monthKey+' — '+checked+'/'+targets.users.length+'\nבודק: '+user.name+'\n'+lines.join('\n');
-      const params={code,targetCode:user.code,monthKey:targets.monthKey};
-      try {
-        const preview=await callApi('POST','adminImportOneSchedule',{...params,preview:true});
-        if(!preview.success || !preview.complete)throw Error('בדיקת הסידור לא הושלמה');
-        const result=await callApi('POST','adminImportOneSchedule',{...params,preview:false});
-        if(!result.success || !result.complete || !Number.isInteger(result.filled))throw Error('לא התקבל אישור מלא; אפשר להפעיל שוב להשלמת החסרים');
-        added+=result.filled;
-        lines.push((result.needsReview?'⚠ ':'✓ ')+user.name+': '+result.message+(result.issues?.length?' '+result.issues.join('; '):''));
-      } catch(e){failed++;lines.push('✗ '+user.name+': '+e.message);}
-      checked++;
-    }
-    box.textContent='הבדיקה הסתיימה: '+checked+' משתמשים; נוספו '+added+' משמרות; '+failed+' טעינות לא הושלמו.\n'+lines.join('\n');
-  } catch(e){box.textContent=e.message+'\n'+lines.join('\n');}
-  finally {allRosterRunning=false;button.disabled=false;}
+  allRosterRunning=true;button.disabled=true;box.hidden=false;box.textContent='מפעיל טעינה בשרת…';
+  try{
+    if(getOfflineQueue().length||pendingReportOperation||shiftFormSubmitting)throw Error('יש להשלים דיווחים ממתינים לפני הטעינה');
+    const targets=await callApi('GET','adminScheduleImportTargets',{code},true);
+    if(state.code!==code||!state.isAdmin||state.viewAs)return;
+    if(!rosterOperation||rosterOperation.code!==code||rosterOperation.monthKey!==targets.monthKey)
+      rosterOperation={code,monthKey:targets.monthKey,operationId:crypto.randomUUID()};
+    const result=await callApi('POST','startBulkRosterImport',rosterOperation,true);
+    if(state.code!==code||!state.isAdmin||state.viewAs)return;
+    rosterOperation=null;renderRosterJob(result.job);
+    if(result.job?.state==='running')scheduleRosterPoll(code);
+  }catch(e){
+    if(state.code===code){box.textContent='לא התקבל אישור הפעלה: '+e.message+' בודק אם המשימה התחילה בשרת…';scheduleRosterPoll(code);button.disabled=false;}
+  }finally{allRosterRunning=false;}
 }
 $('admin-roster-load').addEventListener('click',loadRosterForEveryone);
-$('admin-btn').addEventListener('click',()=>{$('admin-roster-tools').hidden=!state.isAdmin || !!state.viewAs;});
+$('admin-btn').addEventListener('click',()=>{
+  $('admin-roster-tools').hidden=!state.isAdmin||!!state.viewAs;
+  if(state.isAdmin&&!state.viewAs)refreshRosterJob();
+});
