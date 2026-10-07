@@ -92,7 +92,7 @@ const CACHE_NAME = 'ds102-shell-v87';
 const SHELL_FILES = [
   './',
   './index.html',
-  './style.css',
+  './style.css?v=87',
   './app.js?v=87',
   './month-start.js?v=87',
   './calendar-unified.js?v=87',
