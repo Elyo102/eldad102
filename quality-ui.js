@@ -1,5 +1,5 @@
 /* The server owns the durable import; this screen only starts and observes it. */
-let allRosterRunning=false, rosterPoll=null, rosterOperation=null;
+let allRosterRunning=false, rosterPoll=null, rosterOperation=null, rosterStatusFlight=null, rosterStatusFailures=0, rosterLastStatus=null;
 function renderRosterJob(job){
   const box=$('admin-roster-results'),button=$('admin-roster-load');box.hidden=false;
   if(!job){box.textContent='אין טעינה פעילה.';button.disabled=false;return;}
@@ -15,20 +15,31 @@ function renderRosterJob(job){
 }
 function scheduleRosterPoll(code){
   clearTimeout(rosterPoll);
-  rosterPoll=setTimeout(()=>{if(state.code===code&&state.isAdmin&&!state.viewAs)refreshRosterJob();},15000);
+  rosterPoll=setTimeout(()=>{if(state.code===code&&state.isAdmin&&!state.viewAs)refreshRosterJob();},Math.min(15000 * Math.pow(2,rosterStatusFailures),120000));
 }
-async function refreshRosterJob(){
+function refreshRosterJob(){
+  if(rosterStatusFlight && rosterStatusFlight.code===state.code)return rosterStatusFlight.promise;
+  const flight={code:state.code};
+  flight.promise=readRosterJob().finally(()=>{if(rosterStatusFlight===flight)rosterStatusFlight=null;});
+  rosterStatusFlight=flight;return flight.promise;
+}
+async function readRosterJob(){
   if(!state.isAdmin||state.viewAs)return;
   const code=state.code;
   try{
     const result=await callApi('GET','getBulkRosterStatus',{code},true);
     if(state.code!==code||!state.isAdmin||state.viewAs)return;
+    if(!result || result.success!==true || !Object.prototype.hasOwnProperty.call(result,'job'))throw Error('לא התקבלה תשובת מצב תקינה');
+    rosterStatusFailures=0;
     renderRosterJob(result.job);
+    rosterLastStatus={code,text:$('admin-roster-results').textContent};
     if(result.job?.state==='running')scheduleRosterPoll(code);
   }catch(e){
-    if(state.code!==code)return;
+    if(state.code!==code||!state.isAdmin||state.viewAs)return;
     $('admin-roster-results').hidden=false;
-    $('admin-roster-results').textContent='לא ניתן לקרוא כרגע את ההתקדמות. המשימה בשרת ממשיכה; מנסה שוב. '+e.message;
+    rosterStatusFailures++;
+    const previous=rosterLastStatus?.code===code ? '\n\nהמצב האחרון שאומת:\n'+rosterLastStatus.text : '';
+    $('admin-roster-results').textContent='לא ניתן לאמת כרגע את מצב הטעינה עקב תקלה בחיבור. בדיקת המצב תתחדש אוטומטית; אין צורך להפעיל טעינה נוספת.'+previous;
     scheduleRosterPoll(code);
   }
 }
@@ -45,7 +56,7 @@ async function loadRosterForEveryone(){
       rosterOperation={code,monthKey:targets.monthKey,operationId:crypto.randomUUID()};
     const result=await callApi('POST','startBulkRosterImport',rosterOperation,true);
     if(state.code!==code||!state.isAdmin||state.viewAs)return;
-    rosterOperation=null;renderRosterJob(result.job);
+    rosterOperation=null;rosterStatusFailures=0;renderRosterJob(result.job);rosterLastStatus={code,text:box.textContent};
     if(result.job?.state==='running')scheduleRosterPoll(code);
   }catch(e){
     if(state.code===code){box.textContent='לא התקבל אישור הפעלה: '+e.message+' בודק אם המשימה התחילה בשרת…';scheduleRosterPoll(code);button.disabled=false;}
@@ -56,3 +67,5 @@ $('admin-btn').addEventListener('click',()=>{
   $('admin-roster-tools').hidden=!state.isAdmin||!!state.viewAs;
   if(state.isAdmin&&!state.viewAs)refreshRosterJob();
 });
+
+if(typeof window!=='undefined')window.addEventListener('online',()=>{if(state.isAdmin&&!state.viewAs){rosterStatusFailures=0;clearTimeout(rosterPoll);refreshRosterJob();}});

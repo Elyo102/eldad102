@@ -35,13 +35,31 @@
 
   window.addEventListener('unhandledrejection', function (e) {
     const r = e.reason;
-    showFatal('Promise: ' + ((r && r.message) || r));
+    const message = String((r && r.message) || r || '');
+    if ((r && r.networkFailure) || /^(Failed to fetch|Load failed|NetworkError when attempting to fetch resource\.?)$/i.test(message)) {
+      e.preventDefault();
+      console.warn('Unhandled connection failure', r);
+      let notice = document.getElementById('ds-connection-warning');
+      if (!notice) {
+        notice = document.createElement('div'); notice.id = 'ds-connection-warning';
+        notice.setAttribute('role','status');
+        notice.style.cssText='position:fixed;bottom:16px;left:16px;right:16px;z-index:9999;background:#fff4d6;color:#563c00;padding:12px;border:1px solid #c58c20;border-radius:12px;direction:rtl';
+        const text = document.createElement('span');
+        text.textContent='אירעה תקלה בחיבור. אם שמרת דיווח, יש לבדוק שהתקבל אישור לפני שליחה נוספת. ';
+        const close = document.createElement('button'); close.textContent='סגור';
+        close.addEventListener('click',()=>notice.remove());
+        notice.appendChild(text); notice.appendChild(close);
+        (document.body || document.documentElement).appendChild(notice);
+      }
+      return;
+    }
+    showFatal('Promise: ' + message);
   });
 
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v92';
+const APP_VERSION = 'v93';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -191,9 +209,10 @@ async function apiGetFresh(action, params = {}) {
     // Google can return 404 on its temporary content redirect even while /exec is live.
     // Retry once from /exec, only for known reads. Never replay exports/imports or POST.
     const safeReads = new Set(['getHoursMonth', 'getHoursSaveReceipt', 'ping', 'login', 'bootstrap', 'listShifts', 'getMonthlyTotal',
-      'listMonthsWithData', 'listMyPersonalAlerts', 'listMyUrgentCalls', 'listMyMissedPunchReports',
+      'getBulkRosterStatus', 'adminScheduleImportTargets', 'listMonthsWithData', 'listMyPersonalAlerts', 'listMyUrgentCalls', 'listMyMissedPunchReports',
       'getMyShortcuts', 'listMyEvents', 'listGuardEvents', 'listMyGuardEvents']);
-    if (error.httpStatus !== 404 || !safeReads.has(action)) throw error;
+    if ((!error.networkFailure && error.httpStatus !== 404) || !safeReads.has(action) ||
+        (typeof navigator !== 'undefined' && navigator.onLine === false)) throw error;
     url.searchParams.set('_t', Date.now() + '-retry');
     return apiRequest(url.toString(), { method: 'GET' });
   }
