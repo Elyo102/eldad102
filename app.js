@@ -41,7 +41,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v86';
+const APP_VERSION = 'v87';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -1202,6 +1202,7 @@ function setMonthSync(phase, detail) {
     if ($('stats-breakdown')) $('stats-breakdown').classList.add('hidden');
   }
   updateReportSafetyUi();
+  if (typeof renderMonthStart === 'function') renderMonthStart();
 }
 async function updateReportSafetyUi() {
   const btn = $('confirm-month-btn');
@@ -1665,18 +1666,7 @@ $('check-issues-btn').addEventListener('click', async () => {
 });
 $('close-issues-modal').addEventListener('click', () => $('issues-modal').classList.add('hidden'));
 
-$('fix-issues-btn').addEventListener('click', async () => {
-  try {
-    const monthKey = monthKeyOf(state.currentMonth);
-    const result = await callWithFallback_('POST', 'fixMonthFromSchedule', 'fixMyDataIssues',
-      { code: state.code, monthKey });
-    showToast(result.message || 'תוקן בהצלחה');
-    $('issues-modal').classList.add('hidden');
-    await refreshMonth();
-  } catch (err) {
-    showToast(err.message || 'שגיאה בתיקון');
-  }
-});
+$('fix-issues-btn').addEventListener('click', () => loadScheduleForDisplayedMonth());
 
 $('recalc-btn').addEventListener('click', async () => {
   try {

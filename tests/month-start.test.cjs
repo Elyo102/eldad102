@@ -1,0 +1,26 @@
+const fs=require('node:fs'),vm=require('node:vm'),test=require('node:test'),assert=require('node:assert/strict');
+const source=fs.readFileSync(__dirname+'/../month-start.js','utf8');
+function setup(api){
+  let now=new Date('2026-10-07T10:00:00Z'),refreshes=0,calls=0;const storage=new Map(),els={};
+  class Clock extends Date{constructor(...a){super(...(a.length?a:[now]));}}
+  const c={Date:Clock,Set,Number,Array,Error,localStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)},
+    $:id=>els[id]||(els[id]={hidden:false,dataset:{},classList:{add(){}},addEventListener:(ev,cb)=>els[id][ev]=cb}),
+    state:{code:'one',currentMonth:new Date(2026,9,1),shifts:[]},monthSync:{code:'one',month:'2026-10',phase:'ready'},
+    MONTH_NAMES:['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'],
+    monthKeyOf:d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'),
+    navigator:{onLine:true},document:{hidden:false,body:{classList:{contains:()=>false}},addEventListener(){}},
+    setInterval(){},showToast(){},shiftFormSubmitting:false,pendingReportOperation:null,offlineFlushRunning:false,
+    getOfflineQueue:()=>[],callApi:async(...a)=>{calls++;return api?api(...a):{success:true,monthKey:'2026-10',filled:4,complete:true,message:'נוספו 4',issues:[]};},
+    refreshMonth:async()=>{refreshes++;}};
+  vm.createContext(c);vm.runInContext(source,c);return{c,els,storage,get calls(){return calls;},get refreshes(){return refreshes;},now:v=>now=new Date(v)};
+}
+test('prompt appears only after verified current-month read',()=>{const f=setup();f.c.renderMonthStart();assert.equal(f.els['month-start'].hidden,false);f.c.monthSync.phase='cached';f.c.renderMonthStart();assert.equal(f.els['month-start'].hidden,true);f.c.monthSync.phase='error';f.c.renderMonthStart();assert.equal(f.els['month-start'].hidden,true);});
+test('previous month never offers new-month loading',()=>{const f=setup();f.c.state.currentMonth=new Date(2026,8,1);f.c.renderMonthStart();assert.equal(f.els['month-start'].hidden,true);});
+test('dismissal is scoped to user and month and does not write reports',()=>{const f=setup();f.c.renderMonthStart();f.els['month-start-dismiss'].click();assert.equal(f.c.monthPromptSeen('one','2026-10'),true);assert.equal(f.c.monthPromptSeen('two','2026-10'),false);assert.equal(f.c.monthPromptSeen('one','2026-11'),false);assert.equal(f.calls,0);assert.equal(f.storage.size,1);assert.equal(f.els['month-start-load'].disabled,false);});
+test('pending reports prevent import without changing the queue',async()=>{const f=setup(),queue=[{params:{code:'one',dateStr:'2026-10-01'}}];f.c.getOfflineQueue=()=>queue;await f.c.loadScheduleForDisplayedMonth();assert.equal(f.calls,0);assert.equal(queue.length,1);assert.match(f.els['month-start-feedback'].textContent,/ממתין/);});
+test('double-click dispatches one import and green feedback requires acknowledgement',async()=>{let resolve;const f=setup(()=>new Promise(r=>resolve=r));const a=f.c.loadScheduleForDisplayedMonth();await f.c.loadScheduleForDisplayedMonth();assert.equal(f.calls,1);assert.equal(f.els['month-start-load'].disabled,true);resolve({success:true,monthKey:'2026-10',filled:4,complete:true,message:'נוספו 4'});await a;assert.equal(f.refreshes,1);assert.equal(f.els['month-start-feedback'].dataset.status,'saved');});
+test('network failure permits retry without success indication',async()=>{const f=setup(()=>{throw Error('network');});await f.c.loadScheduleForDisplayedMonth();assert.equal(f.els['month-start-feedback'].dataset.status,'review');assert.equal(f.els['month-start-load'].disabled,false);assert.equal(f.c.monthPromptSeen('one','2026-10'),false);});
+test('partial roster feedback stays amber with explicit issues',async()=>{const f=setup(()=>({success:true,monthKey:'2026-10',filled:3,complete:true,message:'נוספו 3',needsReview:true,issues:['25: כפילות']}));await f.c.loadScheduleForDisplayedMonth();assert.equal(f.els['month-start-feedback'].dataset.status,'review');assert.match(f.els['month-start-feedback'].textContent,/כפילות/);});
+test('late import response cannot refresh or display under another account',async()=>{let resolve;const f=setup(()=>new Promise(r=>resolve=r)),job=f.c.loadScheduleForDisplayedMonth();f.c.state.code='two';f.c.monthSync.code='two';resolve({success:true,monthKey:'2026-10',filled:1,complete:true,message:'saved'});await job;assert.equal(f.refreshes,0);assert.equal(f.els['month-start-feedback'].hidden,true);});
+test('month rollover opens November without modifying October reports',()=>{const f=setup();f.c.state.shifts=[{dateStr:'2026-10-02',hours:24}];f.now('2026-11-01T10:00:00Z');f.c.checkCalendarMonthRollover();assert.equal(f.c.monthKeyOf(f.c.state.currentMonth),'2026-11');assert.equal(f.refreshes,1);assert.equal(f.c.state.shifts[0].hours,24);assert.equal(f.calls,0);});
+test('month rollover waits while report editor is open and preserves deliberate history navigation',()=>{const f=setup();f.now('2026-11-01T10:00:00Z');f.c.document.body.classList.contains=()=>true;f.c.checkCalendarMonthRollover();assert.equal(f.refreshes,0);f.c.document.body.classList.contains=()=>false;f.c.state.currentMonth=new Date(2026,8,1);f.c.checkCalendarMonthRollover();assert.equal(f.refreshes,0);assert.equal(f.c.monthKeyOf(f.c.state.currentMonth),'2026-09');});

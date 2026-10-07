@@ -199,6 +199,12 @@
       <div id="stats-breakdown-rows"></div>
     </div>
     <div id="month-sync-status" role="status" aria-live="polite"><span data-status-text>טוען את דיווחי החודש…</span><button type="button" id="month-sync-retry">נסה שוב</button></div>
+    <section id="month-start" hidden aria-labelledby="month-start-title">
+      <strong id="month-start-title"></strong>
+      <p id="month-start-description"></p>
+      <div class="month-start-actions"><button type="button" id="month-start-load" class="btn">כן, טען מהסידור</button><button type="button" id="month-start-dismiss" class="tool-btn">לא עכשיו</button></div>
+      <p id="month-start-feedback" role="status" aria-live="polite" hidden></p>
+    </section>
     <div id="shifts-list" class="shifts-list"></div>
     <div id="shifts-empty" class="empty-state hidden">אין דיווחים לחודש הזה עדיין</div>
   </main>
@@ -832,10 +838,11 @@
 <div id="toast" class="toast hidden"></div>
 <div id="loading-overlay" class="loading-overlay hidden"><div class="spinner"></div></div>
 
-<script src="app.js?v=86"></script>
+<script src="app.js?v=87"></script>
+<script src="month-start.js?v=87"></script>
 <!-- לוח שנה מאוחד - חייב להיטען אחרי app.js, כי הוא דורס בו פונקציות -->
-<script src="calendar-unified.js?v=86"></script>
+<script src="calendar-unified.js?v=87"></script>
 <!-- תיקוני פריסה - חייב להיטען אחרון -->
-<script src="ui-layout.js?v=86"></script>
+<script src="ui-layout.js?v=87"></script>
 </body>
 </html>

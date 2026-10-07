@@ -624,3 +624,12 @@ textarea.text-input { resize: vertical; }
 html body.shift-report-open #add-shift-btn:not(.hidden),
 html body.shift-report-open #ds-tabs-toggle,
 html body.shift-report-open .ds-tab { display:none !important; }
+
+#month-start { background:#fff; border:1px solid #cddbe6; border-radius:14px; padding:16px; margin:0 0 16px; }
+#month-start[hidden], #month-start [hidden] { display:none !important; }
+#month-start p { margin:8px 0; line-height:1.6; }
+.month-start-actions { display:flex; flex-wrap:wrap; gap:10px; }
+.month-start-actions button { min-height:44px; width:auto; padding:10px 16px; }
+#month-start-feedback { white-space:pre-line; padding:10px; border-radius:8px; font-size:14px; }
+#month-start-feedback[data-status=saved] { background:#f0fbf3; color:#155a2c; }
+#month-start-feedback[data-status=review] { background:#fff5df; color:#704400; }
