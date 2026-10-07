@@ -41,7 +41,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v87';
+const APP_VERSION = 'v88';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -1203,6 +1203,7 @@ function setMonthSync(phase, detail) {
   }
   updateReportSafetyUi();
   if (typeof renderMonthStart === 'function') renderMonthStart();
+  if (typeof renderRosterIssues === 'function') renderRosterIssues();
 }
 async function updateReportSafetyUi() {
   const btn = $('confirm-month-btn');
@@ -1261,6 +1262,7 @@ async function refreshMonth(silent = false) {
     const rows = Array.isArray(shifts) ? shifts : shifts && shifts.shifts;
     if (!Array.isArray(rows)) throw new Error('לא התקבלו נתוני חודש תקינים. הנתונים השמורים נשמרו.');
     monthSync.revision = shifts.revision; monthSync.dayRevisions = shifts.dayRevisions || {};
+    monthSync.scheduleIssues = Array.isArray(shifts.scheduleIssues) ? shifts.scheduleIssues : [];
     state.shifts = rows;
     state.shifts.sort((a, b) => (a.dateStr || '').localeCompare(b.dateStr || ''));
     saveMonthToCache(monthKey, state.shifts);
@@ -1282,6 +1284,7 @@ function renderShifts(verified = false) {
   state.shifts.forEach((shift, index) => {
     const card = document.createElement('div');
     card.className = 'shift-card';
+    card.dataset.reportDate = shift.dateStr;
     card.style.animationDelay = Math.min(index * 0.04, 0.5) + 's';
 
     const d = shift.dateStr ? new Date(shift.dateStr) : null;
@@ -4086,6 +4089,7 @@ async function loadBootstrap(prioritizeHours = false) {
 
     if (Array.isArray(res.shifts) && requestId === monthLoadSequence && monthKey === monthKeyOf(state.currentMonth)) {
       monthSync.revision = res.revision; monthSync.dayRevisions = res.dayRevisions || {};
+      monthSync.scheduleIssues = Array.isArray(res.scheduleIssues) ? res.scheduleIssues : [];
       state.shifts = res.shifts;
       state.shifts.sort((a, b) => (a.dateStr || '').localeCompare(b.dateStr || ''));
       saveMonthToCache(monthKey, state.shifts);

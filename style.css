@@ -633,3 +633,12 @@ html body.shift-report-open .ds-tab { display:none !important; }
 #month-start-feedback { white-space:pre-line; padding:10px; border-radius:8px; font-size:14px; }
 #month-start-feedback[data-status=saved] { background:#f0fbf3; color:#155a2c; }
 #month-start-feedback[data-status=review] { background:#fff5df; color:#704400; }
+
+#roster-issues { border:2px solid #b17b16; background:#fff8e8; padding:16px; border-radius:14px; margin-bottom:16px; color:#634408; }
+#roster-issues[hidden] { display:none !important; }
+#roster-issues p { line-height:1.6; }
+.roster-issue-row { display:flex; flex-wrap:wrap; align-items:center; gap:12px; padding:10px 0; border-top:1px solid #e5ce9b; }
+.roster-issue-row span { flex:1 1 180px; line-height:1.5; }
+#roster-issues .tool-btn { flex:0 0 auto; min-height:44px; background:#fff; border:1px solid #9b6d16; color:#634408; }
+#shifts-list .shift-card.shift-roster-review { border:2px solid #b17b16 !important; background:#fff8e8 !important; }
+.roster-review-badge { color:#75500a; font-weight:700; margin-top:8px; font-size:14px; }
