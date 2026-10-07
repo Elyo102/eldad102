@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=88">
+<link rel="stylesheet" href="style.css?v=89">
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js"></script>
 </head>
@@ -285,6 +285,11 @@
 
 <!-- ===================== מסך ניהול מערכת (מנהל בלבד) ===================== -->
 <section id="screen-admin" class="screen hidden">
+  <div id="admin-roster-tools" hidden style="padding:16px">
+    <button id="admin-roster-load" class="btn btn-primary">טעינת החודש הנוכחי לכולם</button>
+    <p>השלמת משמרות חסרות מהסידור, בלי לשנות דיווחים ידניים.</p>
+    <div id="admin-roster-results" role="status" aria-live="polite" hidden style="white-space:pre-wrap;max-height:50vh;overflow:auto"></div>
+  </div>
   <header class="app-header">
     <div class="header-top">
       <div class="user-info"><span>ניהול מערכת</span></div>
@@ -729,6 +734,7 @@
         <option value="חופש">חופש (24 שעות)</option>
         <option value="מחלה">מחלה (24 שעות)</option>
         <option value="מילואים">מילואים (8.5 שעות)</option>
+        <option value="משמרת בזמן מילואים">משמרת בזמן מילואים (שעות עבודה + 8.5)</option>
         <option value="יטבתה">יטבתה (25 שעות)</option>
         <option value="החלפה צרכי מערכת">החלפה צרכי מערכת</option>
         <option value="המשך משמרת">המשך משמרת (24+ שעות)</option>
@@ -843,12 +849,13 @@
 <div id="toast" class="toast hidden"></div>
 <div id="loading-overlay" class="loading-overlay hidden"><div class="spinner"></div></div>
 
-<script src="app.js?v=88"></script>
-<script src="month-start.js?v=88"></script>
-<script src="roster-issues.js?v=88"></script>
+<script src="app.js?v=89"></script>
+<script src="month-start.js?v=89"></script>
+<script src="roster-issues.js?v=89"></script>
+<script src="quality-ui.js?v=89"></script>
 <!-- לוח שנה מאוחד - חייב להיטען אחרי app.js, כי הוא דורס בו פונקציות -->
-<script src="calendar-unified.js?v=88"></script>
+<script src="calendar-unified.js?v=89"></script>
 <!-- תיקוני פריסה - חייב להיטען אחרון -->
-<script src="ui-layout.js?v=88"></script>
+<script src="ui-layout.js?v=89"></script>
 </body>
 </html>

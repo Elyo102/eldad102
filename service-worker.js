@@ -88,16 +88,17 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-const CACHE_NAME = 'ds102-shell-v88';
+const CACHE_NAME = 'ds102-shell-v89';
 const SHELL_FILES = [
   './',
   './index.html',
-  './style.css?v=88',
-  './app.js?v=88',
-  './month-start.js?v=88',
-  './roster-issues.js?v=88',
-  './calendar-unified.js?v=88',
-  './ui-layout.js?v=88',
+  './style.css?v=89',
+  './app.js?v=89',
+  './month-start.js?v=89',
+  './roster-issues.js?v=89',
+  './quality-ui.js?v=89',
+  './calendar-unified.js?v=89',
+  './ui-layout.js?v=89',
   './manifest.json',
   './icons/icon-192.png',
   './icons/icon-512.png'

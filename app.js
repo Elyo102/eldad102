@@ -41,7 +41,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v88';
+const APP_VERSION = 'v89';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -65,13 +65,14 @@ const DAY_TYPE_COLORS = {
   'חופש': 'var(--c-vacation)',
   'מחלה': 'var(--c-sick)',
   'מילואים': 'var(--c-reserve)',
+  'משמרת בזמן מילואים': 'var(--c-reserve)',
   'יטבתה': 'var(--c-yotvata)',
   'החלפה צרכי מערכת': 'var(--c-swap)',
   'המשך משמרת': 'var(--c-continued)',
   'משמרת מפוצלת': 'var(--c-split)',
   'קריאת פתע': '#c62828'
 };
-const DAY_TYPE_ORDER = ['רגיל', 'חופש', 'מחלה', 'מילואים', 'יטבתה', 'החלפה צרכי מערכת', 'המשך משמרת', 'משמרת מפוצלת', 'קריאת פתע'];
+const DAY_TYPE_ORDER = ['רגיל', 'חופש', 'מחלה', 'מילואים', 'משמרת בזמן מילואים', 'יטבתה', 'החלפה צרכי מערכת', 'המשך משמרת', 'משמרת מפוצלת', 'קריאת פתע'];
 
 // צבעי המשמרות - זהים לצבעי הכתב האמיתיים בסידור החיצוני (אומת מול
 // scanScheduleColors ב-16.8.2026): א=אדום/רמי חנן, ב=ירוק/רז בכור
@@ -2100,7 +2101,10 @@ $('upload-doc-btn').addEventListener('click', () => {
   $('upload-doc-modal').classList.remove('hidden');
 });
 $('close-upload-doc-modal').addEventListener('click', () => $('upload-doc-modal').classList.add('hidden'));
+let documentUploading=false;
+let pendingHrDocument=null;
 $('upload-doc-submit-btn').addEventListener('click', async () => {
+  if(documentUploading)return;
   const file = $('doc-file-input').files[0];
   const docType = $('doc-type-select').value;
   const recipientType = $('doc-recipient-select').value;
@@ -2110,20 +2114,28 @@ $('upload-doc-submit-btn').addEventListener('click', async () => {
     errBox.classList.remove('hidden');
     return;
   }
+  const retry=pendingHrDocument && pendingHrDocument.code===state.code && pendingHrDocument.file===file && recipientType==='hr';
   const recipientLabel = recipientType === 'commander' ? 'מפקד/ת המשמרת שלך' : 'HR (ליסה)';
   if (!confirm(`לשלוח את "${file.name}" אל ${recipientLabel}?`)) return;
   try {
-    const fileBase64 = await fileToBase64(file);
-    const res = await callApi('POST', 'uploadUserDocument', {
-      code: state.code, docType, fileBase64, fileName: file.name, mimeType: file.type, recipientType
-    });
+    documentUploading=true;$('upload-doc-submit-btn').disabled=true;
+    if(file.size>10*1024*1024)throw Error('יש לבחור קובץ עד 10 מגה-בייט');
+    const res = retry
+      ? await callApi('POST','retryUploadedDocumentHr',{code:state.code,fileId:pendingHrDocument.fileId,docType})
+      : await callApi('POST','uploadUserDocument',{code:state.code,docType,fileBase64:await fileToBase64(file),fileName:file.name,mimeType:file.type,recipientType});
+    if(!res || res.success!==true)throw Error(res?.message||'לא התקבל אישור העלאה');
+    if(res.uploaded && res.queued===false){
+      pendingHrDocument={code:state.code,file,fileId:res.fileId};
+      errBox.textContent=res.message;errBox.classList.remove('hidden');return;
+    }
+    pendingHrDocument=null;
     showToast(res.message || 'המסמך הועלה בהצלחה');
     $('upload-doc-modal').classList.add('hidden');
     loadMyDocuments();
   } catch (err) {
     errBox.textContent = err.message || 'שגיאה בהעלאת המסמך';
     errBox.classList.remove('hidden');
-  }
+  } finally {documentUploading=false;$('upload-doc-submit-btn').disabled=false;}
 });
 
 // ---------------------------------------------------------------------
