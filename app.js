@@ -41,7 +41,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v91';
+const APP_VERSION = 'v92';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -261,9 +261,9 @@ async function tryAutoLogin() {
   const saved = loadSession();
   if (!saved.code) { showScreen('screen-login'); return; }
   try {
-    const result = await callApi('GET', 'login', { code: saved.code });
+    const result = await callApi('GET', 'login', { code: saved.code, monthKey: monthKeyOf(new Date()) });
     if (result.valid) {
-      enterApp(result.code || saved.code, result.name || saved.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr);
+      enterApp(result.code || saved.code, result.name || saved.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr, result.initialMonth);
     } else {
       clearSession();
       showScreen('screen-login');
@@ -279,7 +279,7 @@ async function tryAutoLogin() {
   }
 }
 
-function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
+function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr, initialMonth) {
   state.code = code;
   state.name = name;
   state.isAdmin = !!isAdmin;
@@ -313,7 +313,7 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr) {
     // את החודש שלו מיד, והנתונים מתעדכנים ברקע כשהתשובה מגיעה.
     const hasMonthCache = renderMonthFromCache();
     setMonthSync(hasMonthCache ? 'cached' : 'loading');
-    loadBootstrap(!hasMonthCache);
+    loadBootstrap(true, initialMonth);
     refreshUrgentCalls();
   }
 
@@ -358,9 +358,9 @@ $('login-form').addEventListener('submit', async (e) => {
   $('login-error').classList.add('hidden');
   if (!code) return;
   try {
-    const result = await callApi('GET', 'login', { code });
+    const result = await callApi('GET', 'login', { code, monthKey: monthKeyOf(new Date()) });
     if (result.valid) {
-      enterApp(result.code || code, result.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr);
+      enterApp(result.code || code, result.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr, result.initialMonth);
     } else {
       $('login-error').textContent = result.message || 'קוד לא תקין';
       $('login-error').classList.remove('hidden');
@@ -389,7 +389,7 @@ $('admin-login-form').addEventListener('submit', async (e) => {
   errBox.classList.add('hidden');
   if (!code) return;
   try {
-    const result = await callApi('GET', 'login', { code });
+    const result = await callApi('GET', 'login', { code, monthKey: monthKeyOf(new Date()) });
     if (!result.valid) {
       errBox.textContent = result.message || 'קוד לא תקין';
       errBox.classList.remove('hidden');
@@ -400,7 +400,7 @@ $('admin-login-form').addEventListener('submit', async (e) => {
       errBox.classList.remove('hidden');
       return;
     }
-    enterApp(result.code || code, result.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr);
+    enterApp(result.code || code, result.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr, result.initialMonth);
     $('admin-login-modal').classList.add('hidden');
   } catch (err) {
     errBox.textContent = err.message || 'שגיאה בהתחברות';
@@ -1242,7 +1242,7 @@ function decorateHoursSavedCard(card, shift, verified) {
 }
 
 let monthLoadSequence = 0;
-async function refreshMonth(silent = false) {
+async function refreshMonth(silent = false, preserveConfirmed = false) {
   const requestId = ++monthLoadSequence;
   const code = state.code;
   const monthKey = monthKeyOf(state.currentMonth);
@@ -1250,7 +1250,7 @@ async function refreshMonth(silent = false) {
 
   // ציור מיידי מהמטמון המקומי. אם יש נתונים שמורים המסך מתמלא מיד,
   // והבקשה לשרת רק מעדכנת אותו. מעבר בין חודשים מרגיש מיידי.
-  const hadCache = renderMonthFromCache();
+  const hadCache = preserveConfirmed || renderMonthFromCache();
   setMonthSync(hadCache ? 'cached' : 'loading');
 
   try {
@@ -1579,11 +1579,13 @@ $('shift-form').addEventListener('submit', async (e) => {
     const operationId = pendingReportOperation.id;
     const result = await callApi('POST', 'saveHoursReport', { ...params, operationId });
     if (!result || result.success !== true) throw new Error('לא התקבל אישור שמירה מהשרת. נסה לשמור שוב.');
+    if (state.code !== params.code) return;
     acknowledgeHoursSave({ id: operationId, params }, result);
     pendingReportOperation = null;
     showToast(result.message || 'נשמר בהצלחה');
     closeShiftModal();
-    await refreshMonthKeepingSelection(dateStr);
+    if (applyConfirmedHoursMutation(params, result)) refreshMonth(true, true);
+    else await refreshMonthKeepingSelection(dateStr);
   } catch (err) {
     if (['OPERATION_MISMATCH','REVIEW_REQUIRED','CONFLICT'].includes(err.serverCode)) pendingReportOperation = null;
     errBox.textContent = (err.message || 'השמירה לא הושלמה') + ' הטופס נשאר פתוח. אפשר לנסות לשמור שוב.';
@@ -1591,6 +1593,32 @@ $('shift-form').addEventListener('submit', async (e) => {
   }
   } finally { shiftFormSubmitting = false; }
 });
+
+// Apply only the canonical report returned AFTER the durable server commit.
+// Other days remain unverified until the background month refresh completes.
+function applyConfirmedHoursMutation(params, result) {
+  const key = params.dateStr.slice(0,7);
+  if (!result || result.success !== true || state.code !== params.code ||
+      monthKeyOf(state.currentMonth) !== key || result.monthKey !== key) return false;
+  const saved = result.shift;
+  if (result.deletedDate !== params.dateStr && (!saved || saved.dateStr !== params.dateStr ||
+      typeof saved.hours !== 'number' || !Number.isFinite(saved.hours) || saved.hours < 0)) return false;
+  ++monthLoadSequence;
+  apiReadsInFlight.clear();
+  state.shifts = state.shifts.filter(row => row.dateStr !== params.dateStr);
+  if (saved) state.shifts.push(saved);
+  state.shifts.sort((a,b) => a.dateStr.localeCompare(b.dateStr));
+  saveMonthToCache(key,state.shifts);
+  monthSync.revision = null; monthSync.dayRevisions = {};
+  setMonthSync('cached','השינוי אושר בשרת. מעדכן את יתר נתוני החודש…');
+  renderShifts(false); renderStatsBreakdown();
+  $('month-total').textContent = Math.round(state.shifts.reduce((sum,row)=>sum+(Number(row.hours)||0),0)*100)/100;
+  if (saved) {
+    const card = Array.from($('shifts-list').children).find(el=>el.dataset.reportDate===params.dateStr);
+    if(card) decorateHoursSavedCard(card,saved,true);
+  }
+  return true;
+}
 
 async function refreshMonthKeepingSelection(dateStr) {
   const targetMonth = new Date(dateStr);
@@ -1602,17 +1630,23 @@ async function refreshMonthKeepingSelection(dateStr) {
   await refreshMonth(true);
 }
 
+let deletingShift = false;
 $('delete-shift-btn').addEventListener('click', async () => {
-  if (!state.editingDateStr) return;
+  if (!state.editingDateStr || deletingShift || shiftFormSubmitting) return;
   if (!confirm('למחוק את הדיווח ליום זה?')) return;
+  const params = { code: state.code, dateStr: state.editingDateStr };
+  deletingShift = true;
   try {
-    const result = await callApi('POST', 'deleteShift', { code: state.code, dateStr: state.editingDateStr });
+    const result = await callApi('POST', 'deleteShift', params);
+    if (!result || result.success !== true) throw Error('לא התקבל אישור מחיקה');
+    if (state.code !== params.code) return;
     showToast(result.message || 'נמחק בהצלחה');
     closeShiftModal();
-    await refreshMonth();
+    if (applyConfirmedHoursMutation(params, result)) refreshMonth(true, true);
+    else await refreshMonth();
   } catch (err) {
     showToast(err.message || 'שגיאה במחיקה');
-  }
+  } finally { deletingShift = false; }
 });
 
 // ---------------------------------------------------------------------
@@ -4091,12 +4125,13 @@ function renderMonthFromCache() {
   }
 }
 
-async function loadBootstrap(prioritizeHours = false) {
+async function loadBootstrap(prioritizeHours = false, initialMonth = null) {
   const requestId = ++monthLoadSequence;
   const code = state.code;
   const monthKey = monthKeyOf(state.currentMonth);
   try {
-    let res = await apiGet('bootstrap', { code, monthKey, section: prioritizeHours ? 'hours' : 'all' });
+    const initialValid = initialMonth && initialMonth.success === true && initialMonth.monthKey === monthKey && Array.isArray(initialMonth.shifts);
+    let res = initialValid ? initialMonth : await apiGet('bootstrap', { code, monthKey, section: prioritizeHours ? 'hours' : 'all' });
     if (!res || res.valid === false || code !== state.code) return;
 
     if (Array.isArray(res.shifts) && requestId === monthLoadSequence && monthKey === monthKeyOf(state.currentMonth)) {
