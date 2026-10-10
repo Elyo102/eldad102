@@ -59,7 +59,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v93';
+const APP_VERSION = 'v94';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -1311,22 +1311,22 @@ function renderShifts(verified = false) {
     const dayNum = shift.dateStr ? shift.dateStr.split('-')[2] : '-';
     const dayName = d && !isNaN(d) ? DAY_NAMES[d.getDay()] : '';
     const isProtected = (shift.notes || '').includes('***');
-    const isSplit = shift.dayType === 'משמרת מפוצלת';
+    const isSplit = shift.dayType === 'משמרת מפוצלת' && (shift.entry2 || shift.exit2);
     const timeLine = isSplit
-      ? `${shift.startTime || ''}-${shift.endTime || ''} + ${shift.entry2 || ''}-${shift.exit2 || ''}${shift.breakType ? ' (' + escapeHtml(shift.breakType) + ')' : ''}`
+      ? `${shift.startTime || ''}-${shift.endTime || ''} + ${shift.entry2 || ''}-${shift.exit2 || ''}${shift.breakType ? ' (' + shift.breakType + ')' : ''}`
       : `${shift.startTime || ''}${shift.startTime && shift.endTime ? ' - ' : ''}${shift.endTime || ''}`;
 
     card.innerHTML = `
       <div class="shift-date-block">
-        <div class="shift-date-num">${dayNum}</div>
+        <div class="shift-date-num">${escapeHtml(dayNum)}</div>
         <div class="shift-date-day">${dayName}</div>
       </div>
       <div class="shift-details">
-        <div class="shift-type ${isProtected ? 'protected' : ''}">${shift.dayType || 'רגיל'}</div>
-        <div class="shift-time">${timeLine} ${shift.workplace ? '· ' + shift.workplace : ''}</div>
+        <div class="shift-type ${isProtected ? 'protected' : ''}">${escapeHtml(shift.dayType || 'רגיל')}</div>
+        <div class="shift-time">${escapeHtml(timeLine)} ${shift.workplace ? '· ' + escapeHtml(shift.workplace) : ''}</div>
         ${shift.notes ? `<div class="shift-notes">${escapeHtml(shift.notes)}</div>` : ''}
       </div>
-      <div class="shift-hours">${shift.hours ?? ''}</div>
+      <div class="shift-hours">${escapeHtml(shift.hours ?? '')}</div>
     `;
     decorateHoursSavedCard(card, shift, verified);
     card.addEventListener('click', () => openShiftModal(shift.dateStr, shift));
@@ -1376,9 +1376,10 @@ function formatHours(n) {
 }
 
 function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
+  // Used both in text and in quoted HTML attributes (document names/URLs).
+  return String(str ?? '').replace(/[&<>"']/g, char => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  })[char]);
 }
 
 // ממיר File שנבחר ב-input[type=file] ל-base64 טהור (בלי ה-"data:...;base64," בהתחלה)
@@ -1534,7 +1535,7 @@ $('shift-form').addEventListener('change', () => clearHoursSaveFeedback($('shift
 
 $('shift-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  if (shiftFormSubmitting) return;
+  if (shiftFormSubmitting || deletingShift) return;
   shiftFormSubmitting = true;
   try {
   const dateStr = $('shift-date').value;
@@ -1560,8 +1561,8 @@ $('shift-form').addEventListener('submit', async (e) => {
     errBox.classList.remove('hidden');
     return;
   }
-  if (dayType === 'משמרת מפוצלת' && (!entry2 || !exit2)) {
-    errBox.textContent = 'יש להזין גם את שעות מקטע 2 (אחרי ההפסקה)';
+  if (dayType === 'משמרת מפוצלת' && Boolean(entry2) !== Boolean(exit2)) {
+    errBox.textContent = 'למקטע השני יש להזין כניסה ויציאה, או להשאיר את שניהם ריקים';
     errBox.classList.remove('hidden');
     return;
   }
@@ -2158,6 +2159,7 @@ let documentUploading=false;
 let pendingHrDocument=null;
 $('upload-doc-submit-btn').addEventListener('click', async () => {
   if(documentUploading)return;
+  const uploadCode = state.code;
   const file = $('doc-file-input').files[0];
   const docType = $('doc-type-select').value;
   const recipientType = $('doc-recipient-select').value;
@@ -2174,11 +2176,12 @@ $('upload-doc-submit-btn').addEventListener('click', async () => {
     documentUploading=true;$('upload-doc-submit-btn').disabled=true;
     if(file.size>10*1024*1024)throw Error('יש לבחור קובץ עד 10 מגה-בייט');
     const res = retry
-      ? await callApi('POST','retryUploadedDocumentHr',{code:state.code,fileId:pendingHrDocument.fileId,docType})
-      : await callApi('POST','uploadUserDocument',{code:state.code,docType,fileBase64:await fileToBase64(file),fileName:file.name,mimeType:file.type,recipientType});
+      ? await callApi('POST','retryUploadedDocumentHr',{code:uploadCode,fileId:pendingHrDocument.fileId,docType})
+      : await callApi('POST','uploadUserDocument',{code:uploadCode,docType,fileBase64:await fileToBase64(file),fileName:file.name,mimeType:file.type,recipientType});
+    if (state.code !== uploadCode) return;
     if(!res || res.success!==true)throw Error(res?.message||'לא התקבל אישור העלאה');
     if(res.uploaded && res.queued===false){
-      pendingHrDocument={code:state.code,file,fileId:res.fileId};
+      pendingHrDocument={code:uploadCode,file,fileId:res.fileId};
       errBox.textContent=res.message;errBox.classList.remove('hidden');return;
     }
     pendingHrDocument=null;
@@ -2186,6 +2189,7 @@ $('upload-doc-submit-btn').addEventListener('click', async () => {
     $('upload-doc-modal').classList.add('hidden');
     loadMyDocuments();
   } catch (err) {
+    if (state.code !== uploadCode) return;
     errBox.textContent = err.message || 'שגיאה בהעלאת המסמך';
     errBox.classList.remove('hidden');
   } finally {documentUploading=false;$('upload-doc-submit-btn').disabled=false;}
@@ -2379,18 +2383,25 @@ $('signature-save-btn').addEventListener('click', async () => {
 // ---------------------------------------------------------------------
 let userDocsTargetCode = null;
 const docEmailSelectedUrls = new Set();
+let userDocsLoadSequence = 0;
 
 async function openUserDocsModal(code, name) {
+  const requestId = ++userDocsLoadSequence;
+  const adminCode = state.code;
   userDocsTargetCode = code;
   docEmailSelectedUrls.clear();
   updateDocEmailBar();
   $('user-docs-modal-title').textContent = 'מסמכים - ' + name;
+  $('user-docs-from-employee').textContent = 'טוען מסמכים…';
+  $('user-docs-from-manager').textContent = '';
   $('user-docs-modal').classList.remove('hidden');
   try {
-    const result = await callApi('GET', 'adminListUserDocuments', { adminCode: state.code, targetCode: code });
+    const result = await callApi('GET', 'adminListUserDocuments', { adminCode, targetCode: code });
+    if (requestId !== userDocsLoadSequence || state.code !== adminCode || userDocsTargetCode !== code) return;
     renderDocList($('user-docs-from-employee'), $('user-docs-from-employee'), result.fromEmployee || [], false, true, code, false, null, true);
     renderDocList($('user-docs-from-manager'), $('user-docs-from-manager'), result.fromManager || [], false, false, null, false, null, true);
   } catch (err) {
+    if (requestId !== userDocsLoadSequence || state.code !== adminCode || userDocsTargetCode !== code) return;
     showToast(err.message || 'שגיאה בטעינת מסמכים');
   }
 }
@@ -2445,7 +2456,12 @@ $('user-docs-send-btn').addEventListener('click', () => {
   $('send-doc-modal').classList.remove('hidden');
 });
 $('close-send-doc-modal').addEventListener('click', () => $('send-doc-modal').classList.add('hidden'));
+let sendingUserDocument = false;
 $('send-doc-submit-btn').addEventListener('click', async () => {
+  if (sendingUserDocument) return;
+  const adminCode = state.code;
+  const targetCode = userDocsTargetCode;
+  const protectFromDeletion = $('send-doc-protect-checkbox').checked;
   const file = $('send-doc-file-input').files[0];
   const errBox = $('send-doc-error');
   if (!file) {
@@ -2455,20 +2471,25 @@ $('send-doc-submit-btn').addEventListener('click', async () => {
   }
   const targetName = $('user-docs-modal-title').textContent.replace('מסמכים - ', '');
   if (!confirm(`לשלוח את "${file.name}" אל ${targetName}?`)) return;
+  sendingUserDocument = true;
+  $('send-doc-submit-btn').disabled = true;
   try {
     const fileBase64 = await fileToBase64(file);
     const res = await callApi('POST', 'adminUploadDocumentToUser', {
-      adminCode: state.code, targetCode: userDocsTargetCode, fileBase64, fileName: file.name, mimeType: file.type,
-      protectFromDeletion: $('send-doc-protect-checkbox').checked
+      adminCode, targetCode, fileBase64, fileName: file.name, mimeType: file.type,
+      protectFromDeletion
     });
+    if (state.code !== adminCode || userDocsTargetCode !== targetCode) return;
+    if (!res || res.success !== true) throw Error(res?.message || 'לא התקבל אישור לשליחת הקובץ');
     showToast(res.message || 'הקובץ נשלח בהצלחה');
     $('send-doc-protect-checkbox').checked = false;
     $('send-doc-modal').classList.add('hidden');
     openUserDocsModal(userDocsTargetCode, targetName);
   } catch (err) {
+    if (state.code !== adminCode || userDocsTargetCode !== targetCode) return;
     errBox.textContent = err.message || 'שגיאה בשליחת הקובץ';
     errBox.classList.remove('hidden');
-  }
+  } finally { sendingUserDocument = false; $('send-doc-submit-btn').disabled = false; }
 });
 
 $('admin-upload-procedure-btn').addEventListener('click', () => {
@@ -5541,7 +5562,7 @@ async function openUrgentHistoryModal() {
   const link = document.createElement('link');
   link.id = 'tabler-icons-css';
   link.rel = 'stylesheet';
-  link.href = 'https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/3.7.0/tabler-icons.min.css';
+  link.href = './vendor/tabler-3.7.0/tabler-icons.css';
   document.head.appendChild(link);
 })();
 
