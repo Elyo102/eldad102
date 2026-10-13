@@ -59,7 +59,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v94';
+const APP_VERSION = 'v95';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -152,6 +152,8 @@ function setLoading(on) {
 // ---------------------------------------------------------------------
 // Bounded requests; never retry writes automatically after an uncertain response.
 async function apiRequest(url, options) {
+  const started = Date.now();
+  let outcome = 'failed', serverMs = null;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 60000);
   try {
@@ -181,9 +183,23 @@ async function apiRequest(url, options) {
     if (!result || typeof result !== 'object') {
       throw new Error('השרת החזיר תשובה לא תקינה. לא התקבל אישור שמירה.');
     }
+    outcome = result.success === false || result.valid === false ? 'rejected' : 'ok';
+    if (Number.isFinite(result.performance?.serverMs)) serverMs = result.performance.serverMs;
     return result;
-  } finally { clearTimeout(timer); }
+  } finally {
+    clearTimeout(timer);
+    try {
+      const action = options.method === 'POST' ? JSON.parse(options.body).action : new URL(url).searchParams.get('action');
+      const samples = apiRequest.samples || (apiRequest.samples = []);
+      samples.push({action, method:options.method, elapsedMs:Date.now()-started, serverMs, outcome});
+      if (samples.length > 60) samples.shift();
+    } catch (_) { /* Diagnostics must never affect an API result. */ }
+  }
 }
+function hoursPerformanceReport() {
+  return (apiRequest.samples || []).map(sample => ({...sample}));
+}
+if (typeof window !== 'undefined') window.hoursPerformanceReport = hoursPerformanceReport;
 // Share simultaneous reads only; never cache completed data or merge writes.
 const apiReadsInFlight = new Map();
 function apiGet(action, params = {}) {
@@ -209,7 +225,7 @@ async function apiGetFresh(action, params = {}) {
     // Google can return 404 on its temporary content redirect even while /exec is live.
     // Retry once from /exec, only for known reads. Never replay exports/imports or POST.
     const safeReads = new Set(['getHoursMonth', 'getHoursSaveReceipt', 'ping', 'login', 'bootstrap', 'listShifts', 'getMonthlyTotal',
-      'getBulkRosterStatus', 'adminScheduleImportTargets', 'listMonthsWithData', 'listMyPersonalAlerts', 'listMyUrgentCalls', 'listMyMissedPunchReports',
+      'getBulkRosterStatus', 'getPersonalUpdates', 'adminScheduleImportTargets', 'listMonthsWithData', 'listMyPersonalAlerts', 'listMyUrgentCalls', 'listMyMissedPunchReports',
       'getMyShortcuts', 'listMyEvents', 'listGuardEvents', 'listMyGuardEvents']);
     if ((!error.networkFailure && error.httpStatus !== 404) || !safeReads.has(action) ||
         (typeof navigator !== 'undefined' && navigator.onLine === false)) throw error;
@@ -282,7 +298,7 @@ async function tryAutoLogin() {
   try {
     const result = await callApi('GET', 'login', { code: saved.code, monthKey: monthKeyOf(new Date()) });
     if (result.valid) {
-      enterApp(result.code || saved.code, result.name || saved.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr, result.initialMonth);
+      enterApp(result.code || saved.code, result.name || saved.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr, result.initialMonth, result.initialShortcuts);
     } else {
       clearSession();
       showScreen('screen-login');
@@ -298,7 +314,7 @@ async function tryAutoLogin() {
   }
 }
 
-function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr, initialMonth) {
+function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr, initialMonth, initialShortcuts) {
   state.code = code;
   state.name = name;
   state.isAdmin = !!isAdmin;
@@ -336,7 +352,7 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr, initialMonth)
     refreshUrgentCalls();
   }
 
-  loadShortcutsFromServer();
+  loadShortcutsFromServer(initialShortcuts);
   startPersonalAlertsPolling();
 }
 
@@ -346,15 +362,24 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr, initialMonth)
 // כך שהתחושה מהירה יותר מרענון קבוע ולא איטית יותר.
 let personalAlertsPollInterval = null;
 let visibilityListenerAttached = false;
+async function refreshPersonalUpdates() {
+  const code = state.code;
+  if (!code || document.hidden) return;
+  try {
+    const result = await apiGet('getPersonalUpdates', {code});
+    if (state.code !== code || !result || result.success !== true) return;
+    if (Array.isArray(result.urgentCalls)) refreshUrgentCalls({calls:result.urgentCalls});
+    if (Array.isArray(result.alerts)) applyPersonalAlerts(result.alerts);
+    if (Array.isArray(result.missedPunch)) applyMissedPunchReports(result.missedPunch);
+  } catch (_) { /* Retain the last verified data and retry at the next poll. */ }
+}
 
 function startPersonalAlertsPolling() {
   if (personalAlertsPollInterval) clearInterval(personalAlertsPollInterval);
 
   personalAlertsPollInterval = setInterval(() => {
     if (document.hidden) return;
-    loadPersonalAlerts();
-    refreshMissedPunchUi();
-    refreshUrgentCalls();
+    refreshPersonalUpdates();
   }, 90000);
 
   // רישום פעם אחת בלבד. בלי השמירה הזו כל התחברות מחדש הייתה מוסיפה
@@ -363,9 +388,7 @@ function startPersonalAlertsPolling() {
     visibilityListenerAttached = true;
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && state.code) {
-        loadPersonalAlerts();
-        refreshMissedPunchUi();
-        refreshUrgentCalls();
+        refreshPersonalUpdates();
       }
     });
   }
@@ -379,7 +402,7 @@ $('login-form').addEventListener('submit', async (e) => {
   try {
     const result = await callApi('GET', 'login', { code, monthKey: monthKeyOf(new Date()) });
     if (result.valid) {
-      enterApp(result.code || code, result.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr, result.initialMonth);
+      enterApp(result.code || code, result.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr, result.initialMonth, result.initialShortcuts);
     } else {
       $('login-error').textContent = result.message || 'קוד לא תקין';
       $('login-error').classList.remove('hidden');
@@ -419,7 +442,7 @@ $('admin-login-form').addEventListener('submit', async (e) => {
       errBox.classList.remove('hidden');
       return;
     }
-    enterApp(result.code || code, result.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr, result.initialMonth);
+    enterApp(result.code || code, result.name, result.isAdmin, result.isManager, result.shiftTeam, result.isHr, result.initialMonth, result.initialShortcuts);
     $('admin-login-modal').classList.add('hidden');
   } catch (err) {
     errBox.textContent = err.message || 'שגיאה בהתחברות';
@@ -5267,11 +5290,13 @@ function urgentBanner() {
   return el;
 }
 
-async function refreshUrgentCalls() {
+async function refreshUrgentCalls(initialResult) {
   if (!state.code) return;
+  const code = state.code;
   const banner = urgentBanner();
   try {
-    const res = await apiGet('listMyPendingUrgentCalls', { code: state.code });
+    const res = initialResult || await apiGet('listMyPendingUrgentCalls', { code });
+    if (state.code !== code) return;
     const calls = (res && res.calls) || [];
 
     if (calls.length === 0) {
@@ -5949,16 +5974,19 @@ let myShortcutsCache = null;
 let myPerms = [];
 let myPosition = '';
 
-async function loadShortcutsFromServer() {
+async function loadShortcutsFromServer(initialResult) {
+  const code = state.code;
   try {
-    const r = await apiGet('getMyShortcuts', { code: state.code });
+    const r = initialResult?.success === true ? initialResult : await apiGet('getMyShortcuts', { code });
+    if (state.code !== code) return;
     myShortcutsCache = (r && r.shortcuts) || [];
     myPerms = (r && r.perms) || [];
     myPosition = (r && r.position) || '';
   } catch (e) {
+    if (state.code !== code) return;
     // נפילה לאחור לאחסון המקומי, כדי שמי שכבר בחר לא יאבד את הבחירה
     try {
-      myShortcutsCache = JSON.parse(localStorage.getItem('ds102_shortcuts_' + state.code) || '[]');
+      myShortcutsCache = JSON.parse(localStorage.getItem('ds102_shortcuts_' + code) || '[]');
     } catch (e2) {
       myShortcutsCache = [];
     }
