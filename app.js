@@ -59,7 +59,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v95';
+const APP_VERSION = 'v96';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -519,7 +519,7 @@ $('register-form').addEventListener('submit', async (e) => {
   try {
     const result = await callApi('POST', 'registerUser', { firstName, lastName, email });
     resultBox.textContent = result.success
-      ? `נרשמת בהצלחה! הקוד האישי שלך: ${result.code}`
+      ? (result.pendingApproval ? result.message : `נרשמת בהצלחה! הקוד האישי שלך: ${result.code}`)
       : (result.message || 'ההרשמה לא הושלמה');
     resultBox.classList.remove('hidden');
   } catch (err) {
@@ -567,6 +567,7 @@ function relativeLoginLabel(iso) {
 
 let cachedAdminUsersList = [];
 async function loadAdminUsers() {
+  $('app-user-create-panel').classList.toggle('hidden', !state.isAdmin);
   const list = $('admin-users-list');
   const empty = $('admin-empty');
   list.innerHTML = '';
@@ -632,6 +633,7 @@ function renderAdminUserCard(u) {
       <button class="tool-btn admin-reminder-btn" data-code="${escapeHtml(u.code)}" data-name="${escapeHtml(u.name || '')}" style="width:auto;padding:6px 12px">תזכורת</button>
     </div>
   `;
+  if(typeof appUserControls==='function')card.insertAdjacentHTML('beforeend',appUserControls(u));
   return card;
 }
 
