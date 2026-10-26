@@ -59,7 +59,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v97';
+const APP_VERSION = 'v98';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -316,7 +316,6 @@ async function tryAutoLogin() {
 
 function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr, initialMonth, initialShortcuts) {
   state.code = code;
-  resetReportAccountContext_();
   state.name = name;
   state.isAdmin = !!isAdmin;
   state.isManager = !!isManager || state.isAdmin;
@@ -335,6 +334,7 @@ function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr, initialMonth,
   $('month-section-hr-hidden').classList.toggle('hidden', state.isHr);
   const now = new Date();
   state.currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  resetReportAccountContext_();
   // בדיקה מפורשת - רק HR אמיתי (לא מנהל-על, לא ראש משמרת) מנותב ישר
   // למסך הניהול עם היומן. isHr חייב להיות true במפורש (לא רק truthy).
   const isTrulyHr = state.isHr === true && !state.isAdmin;
