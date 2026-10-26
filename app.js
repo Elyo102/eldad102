@@ -59,7 +59,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v96';
+const APP_VERSION = 'v97';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -316,6 +316,7 @@ async function tryAutoLogin() {
 
 function enterApp(code, name, isAdmin, isManager, shiftTeam, isHr, initialMonth, initialShortcuts) {
   state.code = code;
+  resetReportAccountContext_();
   state.name = name;
   state.isAdmin = !!isAdmin;
   state.isManager = !!isManager || state.isAdmin;
@@ -547,6 +548,9 @@ $('forgot-form').addEventListener('submit', async (e) => {
 $('logout-btn').addEventListener('click', () => {
   clearSession();
   state.code = null;
+  state.self = null; state.viewAs = null;
+  if ($('view-as-bar')) $('view-as-bar').classList.add('hidden');
+  resetReportAccountContext_();
   showScreen('screen-login');
 });
 
@@ -713,6 +717,20 @@ $('admin-users-list').addEventListener('dblclick', (e) => {
 //      מי שינה. בלי זה אין דרך לדעת שהשעות לא הוזנו על ידו.
 // =====================================================================
 
+// Drop only the visible account context; retain each account's saved cache and queue.
+function resetReportAccountContext_() {
+  state.reportAccountEpoch = (state.reportAccountEpoch || 0) + 1;
+  ++monthLoadSequence;
+  apiReadsInFlight.clear();
+  state.shifts = [];
+  state.editingDateStr = null;
+  state.editingCode = null;
+  pendingReportOperation = null;
+  closeShiftModal();
+  monthSync = { revision: null, dayRevisions: {}, scheduleIssues: [] };
+  setMonthSync('loading');
+}
+
 function viewAsBanner_() {
   let bar = $('view-as-bar');
   if (bar) return bar;
@@ -721,13 +739,13 @@ function viewAsBanner_() {
   bar.className = 'hidden';
   bar.setAttribute('style',
     'position:sticky;top:0;z-index:9999;display:flex;align-items:center;justify-content:space-between;' +
-    'gap:10px;padding:10px 14px;background:#8B1E1E;color:#fff;font-weight:700;' +
+    'gap:8px;flex-wrap:wrap;box-sizing:border-box;width:100%;padding:10px 14px;background:#8B1E1E;color:#fff;font-weight:700;' +
     'box-shadow:0 2px 8px rgba(0,0,0,.25)');
   bar.innerHTML =
-    '<span id="view-as-text" style="flex:1;min-width:0"></span>' +
+    '<span id="view-as-text" style="flex:1 1 220px;min-width:0;overflow-wrap:anywhere"></span>' +
     '<button id="view-as-exit" type="button" ' +
     'style="background:#fff;color:#8B1E1E;border:0;border-radius:8px;padding:8px 14px;' +
-    'font-weight:700;cursor:pointer;white-space:nowrap">← חזרה לחשבון שלי</button>';
+    'font-weight:700;cursor:pointer;white-space:normal;max-width:100%;min-height:44px;flex:0 0 auto">← חזרה לחשבון שלי</button>';
   document.body.insertBefore(bar, document.body.firstChild);
   bar.querySelector('#view-as-exit').addEventListener('click', exitViewAs);
   return bar;
@@ -771,6 +789,7 @@ function enterViewAs(code, name) {
 
   const now = new Date();
   state.currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  resetReportAccountContext_();
   showScreen('screen-app');
   refreshMonth().catch(() => showToast('לא הצלחתי לטעון את החודש'));
 }
@@ -799,8 +818,10 @@ function exitViewAs() {
 
   const now = new Date();
   state.currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  showScreen('screen-admin');
-  loadAdminUsers().catch(() => {});
+  resetReportAccountContext_();
+  showScreen(state.isHr ? 'screen-admin' : 'screen-app');
+  if (state.isHr) loadAdminUsers().catch(() => {});
+  else refreshMonth().catch(() => showToast('לא הצלחתי לטעון את החודש'));
 }
 
 $('admin-users-list').addEventListener('click', async (e) => {
@@ -1510,6 +1531,7 @@ $('shift-workplace').addEventListener('change', () => {
 
 function openShiftModal(dateStr, existing) {
   pendingReportOperation = null;
+  state.editingCode = state.code;
   state.editingDateStr = dateStr || null;
   $('shift-form-error').classList.add('hidden');
   $('shift-modal-title').textContent = existing ? 'עריכת דיווח' : 'דיווח חדש';
@@ -1561,7 +1583,9 @@ $('shift-form').addEventListener('change', () => clearHoursSaveFeedback($('shift
 $('shift-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   if (shiftFormSubmitting || deletingShift) return;
+  if (state.editingCode !== state.code) { closeShiftModal(); showToast('החשבון השתנה. פתח מחדש את הדיווח בחשבון המתאים.'); return; }
   shiftFormSubmitting = true;
+  const accountCode = state.code, accountEpoch = state.reportAccountEpoch;
   try {
   const dateStr = $('shift-date').value;
   const dayType = $('shift-daytype').value;
@@ -1624,7 +1648,7 @@ $('shift-form').addEventListener('submit', async (e) => {
     const operationId = pendingReportOperation.id;
     const result = await callApi('POST', 'saveHoursReport', { ...params, operationId });
     if (!result || result.success !== true) throw new Error('לא התקבל אישור שמירה מהשרת. נסה לשמור שוב.');
-    if (state.code !== params.code) return;
+    if (state.code !== params.code || state.reportAccountEpoch !== accountEpoch) return;
     acknowledgeHoursSave({ id: operationId, params }, result);
     pendingReportOperation = null;
     showToast(result.message || 'נשמר בהצלחה');
@@ -1632,6 +1656,7 @@ $('shift-form').addEventListener('submit', async (e) => {
     if (applyConfirmedHoursMutation(params, result)) refreshMonth(true, true);
     else await refreshMonthKeepingSelection(dateStr);
   } catch (err) {
+    if (state.code !== accountCode || state.reportAccountEpoch !== accountEpoch) return;
     if (['OPERATION_MISMATCH','REVIEW_REQUIRED','CONFLICT'].includes(err.serverCode)) pendingReportOperation = null;
     errBox.textContent = (err.message || 'השמירה לא הושלמה') + ' הטופס נשאר פתוח. אפשר לנסות לשמור שוב.';
     errBox.classList.remove('hidden');
@@ -1679,17 +1704,20 @@ let deletingShift = false;
 $('delete-shift-btn').addEventListener('click', async () => {
   if (!state.editingDateStr || deletingShift || shiftFormSubmitting) return;
   if (!confirm('למחוק את הדיווח ליום זה?')) return;
-  const params = { code: state.code, dateStr: state.editingDateStr };
+  if (state.editingCode !== state.code) { closeShiftModal(); return; }
+  const params = { code: state.editingCode, dateStr: state.editingDateStr };
   deletingShift = true;
+  const accountEpoch = state.reportAccountEpoch;
   try {
     const result = await callApi('POST', 'deleteShift', params);
     if (!result || result.success !== true) throw Error('לא התקבל אישור מחיקה');
-    if (state.code !== params.code) return;
+    if (state.code !== params.code || state.reportAccountEpoch !== accountEpoch) return;
     showToast(result.message || 'נמחק בהצלחה');
     closeShiftModal();
     if (applyConfirmedHoursMutation(params, result)) refreshMonth(true, true);
     else await refreshMonth();
   } catch (err) {
+    if (state.code !== params.code || state.reportAccountEpoch !== accountEpoch) return;
     showToast(err.message || 'שגיאה במחיקה');
   } finally { deletingShift = false; }
 });
