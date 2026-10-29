@@ -59,7 +59,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v98';
+const APP_VERSION = 'v99';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -738,15 +738,24 @@ function viewAsBanner_() {
   bar.id = 'view-as-bar';
   bar.className = 'hidden';
   bar.setAttribute('style',
-    'position:sticky;top:0;z-index:9999;display:flex;align-items:center;justify-content:space-between;' +
-    'gap:8px;flex-wrap:wrap;box-sizing:border-box;width:100%;padding:10px 14px;background:#8B1E1E;color:#fff;font-weight:700;' +
+    'position:fixed;top:0;left:0;right:0;z-index:9999;display:flex;align-items:center;justify-content:space-between;' +
+    'gap:8px;flex-wrap:wrap;box-sizing:border-box;width:100%;padding:calc(10px + env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-right, 0px)) 10px max(14px, env(safe-area-inset-left, 0px));background:#8B1E1E;color:#fff;font-weight:700;' +
     'box-shadow:0 2px 8px rgba(0,0,0,.25)');
   bar.innerHTML =
     '<span id="view-as-text" style="flex:1 1 220px;min-width:0;overflow-wrap:anywhere"></span>' +
     '<button id="view-as-exit" type="button" ' +
     'style="background:#fff;color:#8B1E1E;border:0;border-radius:8px;padding:8px 14px;' +
     'font-weight:700;cursor:pointer;white-space:normal;max-width:100%;min-height:44px;flex:0 0 auto">← חזרה לחשבון שלי</button>';
-  document.body.insertBefore(bar, document.body.firstChild);
+  // Reserve the actual banner height, including wrapped text and the iPhone safe area.
+  // A sticky banner inside a viewport-height body stops sticking on long reports.
+  const spacer = document.createElement('div');
+  spacer.id = 'view-as-spacer';
+  spacer.setAttribute('aria-hidden', 'true');
+  document.body.insertBefore(spacer, document.body.firstChild);
+  document.body.insertBefore(bar, spacer);
+  const syncHeight = () => { spacer.style.height = bar.getBoundingClientRect().height + 'px'; };
+  new ResizeObserver(syncHeight).observe(bar);
+  syncHeight();
   bar.querySelector('#view-as-exit').addEventListener('click', exitViewAs);
   return bar;
 }
