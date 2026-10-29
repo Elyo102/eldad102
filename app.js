@@ -59,7 +59,7 @@
   window.dsShowFatal = showFatal;
 })();
 
-const APP_VERSION = 'v99';
+const APP_VERSION = 'v100';
 document.addEventListener('DOMContentLoaded', () => {
   const el = document.getElementById('version-indicator');
   if (el) el.textContent = 'גרסה ' + APP_VERSION;
@@ -584,10 +584,34 @@ async function loadAdminUsers() {
       return;
     }
     empty.classList.add('hidden');
-    users.forEach(u => list.appendChild(renderAdminUserCard(u)));
+    groupAdminUsers(users).forEach(group => {
+      const section = document.createElement('section');
+      section.className = 'admin-team-group';
+      section.style.setProperty('--team-color', group.color);
+      const heading = document.createElement('h3');
+      heading.className = 'admin-team-heading';
+      heading.textContent = group.label + ' · ' + group.users.length + ' עובדים';
+      const cards = document.createElement('div');
+      cards.className = 'admin-team-cards';
+      group.users.forEach(u => cards.appendChild(renderAdminUserCard(u)));
+      section.append(heading, cards);
+      list.appendChild(section);
+    });
   } catch (err) {
     showToast(err.message || 'שגיאה בטעינת רשימת המשתמשים');
   }
+}
+
+function groupAdminUsers(users) {
+  const groups = SHIFT_TEAM_BADGES.map(t => ({ label: t.label, color: t.color, users: [] }));
+  const unassigned = { label: 'ללא שיוך למשמרת', color: '#59616c', users: [] };
+  for (const user of users) {
+    const group = groups.find(g => g.label === user.shiftTeam) || unassigned;
+    group.users.push(user);
+  }
+  return [...groups, unassigned].filter(g => g.users.length).map(g => ({
+    ...g, users: g.users.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'he'))
+  }));
 }
 
 function renderAdminUserCard(u) {
